@@ -21,7 +21,8 @@ done_testing();
 sub check_logger {
     my($file) = @_;
     ok($file, $file);
-    next if $file =~ m|/Monitoring/Livestatus.pm$|gmx;
+    return if $file =~ m|/Monitoring/Livestatus.pm$|gmx;
+    return if $file =~ m|/Thruk/Utils/Log.pm$|gmx;
     my $content = read_file($file);
     if($content =~ m/(_debug|_error|_warn|_info|_audit_log)\(/gmx && $content !~ m/\Quse Thruk::Utils::Log\E/gmx) {
         unless($content =~ m/\Quse Thruk::Utils::Log\E/gmx) {

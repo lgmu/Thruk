@@ -12,15 +12,14 @@ Utilities Collection for CLI logging
 
 use warnings;
 use strict;
-use Carp;
 use Cwd qw/abs_path/;
 use Data::Dumper qw/Dumper/;
-use Time::HiRes qw//;
-use POSIX qw//;
+use Time::HiRes ();
+use POSIX ();
 use File::Slurp qw(read_file);
 
-use Thruk qw//;
-use Thruk::Utils::IO qw//;
+use Thruk;
+use Thruk::Utils::IO;
 
 use Exporter 'import';
 our @EXPORT = qw(_fatal _error _warn _info _debug _debug2 _debugs _debugc _trace _audit_log);
@@ -34,6 +33,12 @@ our $layouts = {};
 our $cwd = Cwd::getcwd;
 
 ##############################################
+
+=head2 log
+
+    log returns the current logger object
+
+=cut
 sub log {
     init_logging() unless $logger;
     return($logger);
@@ -41,7 +46,7 @@ sub log {
 
 ##############################################
 sub _fatal {
-    return _log('ERROR', \@_);
+    _log('ERROR', \@_);
     exit(3);
 }
 
@@ -339,7 +344,9 @@ sub _get_screen_logger {
     return($screenlogger) if $screenlogger;
 
     # since we log to stderr, check if stderr is attached to a terminal
+    ## no critic
     my $use_color = -t STDERR;
+    ## use critic
     if($use_color) {
         require Term::ANSIColor;
         $use_color = 0 if $@;
@@ -421,7 +428,7 @@ sub _striped_caller_information {
 
 ##############################################
 sub _color_by_level {
-    my($layout, $message, $category, $priority, $caller_level) = @_;
+    my($layout, $message, $category, $priority) = @_;
     # TODO: add option
     if($priority eq 'DEBUG') { return(Term::ANSIColor::color("FAINT")); }
     if($priority eq 'ERROR') { return(Term::ANSIColor::color("BRIGHT_RED")); }

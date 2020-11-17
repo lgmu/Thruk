@@ -733,7 +733,9 @@ sub do_child_stuff {
     $c->stats->profile(begin => 'External Job: '.$id) if $id;
     $c->stats->profile(comment => sprintf('time: %s - host: %s - pid: %s', (scalar localtime), $c->config->{'hostname'}, $$));
 
+    ## no critic
     $ENV{'THRUK_MODE'} = 'CLI';
+    ## use critic
     delete $ENV{'THRUK_VERBOSE'};
     delete $ENV{'THRUK_PERFORMANCE_DEBUG'};
 

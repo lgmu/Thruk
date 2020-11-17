@@ -697,7 +697,6 @@ runs reconnect on all peers
 
 sub reconnect {
     my($self, @args) = @_;
-    my $c = $Thruk::Request::c;
     eval {
         $self->_do_on_peers( 'reconnect', \@args);
     };
