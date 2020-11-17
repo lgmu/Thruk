@@ -458,7 +458,9 @@ sub set_config_env {
     }
     ## use critic
 
-    return(set_default_config($config));
+    $config = set_default_config($config);
+    $Thruk::config = $config;
+    return($config);
 }
 
 ######################################
