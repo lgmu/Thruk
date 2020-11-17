@@ -15,7 +15,7 @@ use warnings;
 use Thruk::Utils;
 use Carp qw/confess/;
 use URI::Escape qw/uri_unescape/;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 ##############################################
 

@@ -25,7 +25,7 @@ use strict;
 use Getopt::Long ();
 use Cpanel::JSON::XS qw/decode_json/;
 use Thruk::Utils::Filter ();
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 our $skip_backends = \&_skip_backends;
 
@@ -48,12 +48,6 @@ sub cmd {
         return({output => $opts, rc => 2});
     }
 
-    # logging to screen would break json output
-    {
-        delete $c->app->{'_log'};
-        local $ENV{'THRUK_MODE'} = undef; # TODO: check
-        $c->app->init_logging();
-    }
     if(scalar @{$opts} == 0) {
         return(Thruk::Utils::CLI::get_submodule_help(__PACKAGE__));
     }
@@ -124,8 +118,8 @@ sub _fetch_results {
 
         $opt->{'result'} = $sub_c->res->body;
         $opt->{'rc'}     = ($sub_c->res->code == 200 ? 0 : 3);
-        _debug("json data:");
-        _debug($opt->{'result'});
+        _debug2("json data:");
+        _debug2($opt->{'result'});
     }
     return($opts);
 }

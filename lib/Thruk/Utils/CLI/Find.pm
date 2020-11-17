@@ -37,7 +37,7 @@ The find command looks for references for given objects
 use warnings;
 use strict;
 use Thruk::Utils::References;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 ##############################################
 

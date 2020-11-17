@@ -15,7 +15,7 @@ use warnings;
 use Thruk::Utils::IO ();
 use Thruk::Utils::CookieAuth ();
 use Thruk::Utils::DateTime ();
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 use Carp qw/confess croak longmess/;
 use Data::Dumper qw/Dumper/;
 use Date::Calc qw/Localtime Monday_of_Week Week_of_Year Today Add_Delta_Days/;

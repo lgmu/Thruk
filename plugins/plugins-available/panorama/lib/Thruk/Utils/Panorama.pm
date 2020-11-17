@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use Thruk::Utils;
 use Thruk::Utils::Panorama::Scripted;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 use Cpanel::JSON::XS;
 
 =head1 NAME

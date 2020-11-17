@@ -10,7 +10,7 @@ use Encode qw(decode_utf8 encode_utf8);
 use Module::Load qw/load/;
 use Carp qw/confess/;
 use Thruk::Utils::Panorama qw/ACCESS_NONE ACCESS_READONLY ACCESS_READWRITE ACCESS_OWNER DASHBOARD_FILE_VERSION SOFT_STATE HARD_STATE/;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 =head1 NAME
 

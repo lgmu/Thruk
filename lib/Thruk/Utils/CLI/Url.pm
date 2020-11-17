@@ -31,7 +31,7 @@ command line reports.
 
 use warnings;
 use strict;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 use Getopt::Long ();
 
 ##############################################

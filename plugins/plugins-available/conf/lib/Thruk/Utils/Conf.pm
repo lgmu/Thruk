@@ -7,7 +7,7 @@ use File::Slurp qw/read_file/;
 use Storable qw/store retrieve/;
 use Data::Dumper qw/Dumper/;
 use Scalar::Util qw/weaken/;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 use Thruk::Constants qw/:peer_states/;
 #use Thruk::Timer qw/timing_breakpoint/;

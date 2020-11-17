@@ -26,7 +26,7 @@ use Storable qw/dclone/;
 use URI::Escape qw/uri_escape/;
 use Thruk::Utils::Filter ();
 use Thruk::Constants qw/:add_defaults :peer_states/;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 my @stash_config_keys = qw/
     url_prefix product_prefix title_prefix use_pager start_page documentation_link

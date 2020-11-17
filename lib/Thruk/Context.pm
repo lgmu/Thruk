@@ -19,7 +19,7 @@ use Thruk::Utils;
 use Thruk::Utils::IO;
 use Thruk::Utils::CookieAuth;
 use Thruk::Utils::APIKeys;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 =head1 NAME
 
@@ -269,7 +269,7 @@ options are: {
 =cut
 sub authenticate {
     my($c, %options) = @_;
-    _debug("checking authenticaton") if Thruk->verbose;
+    _debug2("checking authenticaton");
     confess("authenticate called multiple times, use change_user instead.") if $c->user_exists;
     delete $c->stash->{'remote_user'};
     delete $c->{'user'};

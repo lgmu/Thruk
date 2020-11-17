@@ -16,7 +16,7 @@ use Carp;
 use File::Slurp qw/read_file/;
 use Storable qw/dclone/;
 use Thruk::Utils::Filter;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 ##############################################
 =head1 METHODS

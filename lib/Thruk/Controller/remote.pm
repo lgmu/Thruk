@@ -6,7 +6,7 @@ use Data::Dumper;
 use Cpanel::JSON::XS qw/encode_json/;
 use File::Slurp qw/read_file/;
 use Module::Load qw/load/;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 =head1 NAME
 

@@ -17,7 +17,7 @@ use Time::HiRes qw/sleep/;
 use File::Copy qw/copy/;
 use Carp qw/confess/;
 use Thruk::Utils::External;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 #use Thruk::Timer qw/timing_breakpoint/;
 
 ##########################################################

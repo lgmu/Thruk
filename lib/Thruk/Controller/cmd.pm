@@ -3,7 +3,7 @@ package Thruk::Controller::cmd;
 use strict;
 use warnings;
 use Data::Dumper;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 =head1 NAME
 

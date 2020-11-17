@@ -17,7 +17,7 @@ use File::Slurp qw/read_file/;
 use Cpanel::JSON::XS qw/decode_json encode_json/;
 use Encode qw(decode_utf8);
 use Thruk::Utils::IO;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 ##############################################
 =head1 METHODS

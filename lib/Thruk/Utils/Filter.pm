@@ -18,8 +18,8 @@ use URI::Escape qw/uri_escape/;
 use Cpanel::JSON::XS ();
 use Encode qw/decode_utf8/;
 use File::Slurp qw/read_file/;
-use Data::Dumper qw//;
-use Thruk::Utils::Log;
+use Data::Dumper ();
+use Thruk::Utils::Log qw/:all/;
 
 ##############################################
 # use faster HTML::Escape if available

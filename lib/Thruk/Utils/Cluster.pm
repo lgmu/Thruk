@@ -19,7 +19,7 @@ use Thruk::Backend::Provider::HTTP;
 use Time::HiRes qw/gettimeofday tv_interval/;
 use Carp qw/confess/;
 use Data::Dumper qw/Dumper/;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 my $context;
 

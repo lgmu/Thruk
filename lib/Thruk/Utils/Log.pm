@@ -22,7 +22,8 @@ use Thruk;
 use Thruk::Utils::IO;
 
 use Exporter 'import';
-our @EXPORT = qw(_fatal _error _warn _info _debug _debug2 _debugs _debugc _trace _audit_log);
+our @EXPORT_OK = qw(_fatal _error _warn _info _debug _debug2 _debugs _debugc _trace _audit_log);
+our %EXPORT_TAGS = ( all => \@EXPORT_OK );
 
 ##############################################
 

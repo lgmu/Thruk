@@ -6,8 +6,8 @@ use warnings;
 use Data::Dumper qw/Dumper/;
 use Module::Load qw/load/;
 use parent 'Thruk::Backend::Provider::Base';
-use Thruk::Utils qw//;
-use Thruk::Utils::Log;
+use Thruk::Utils ();
+use Thruk::Utils::Log qw/:all/;
 use Carp qw/confess/;
 use POSIX ();
 

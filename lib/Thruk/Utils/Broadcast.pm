@@ -12,7 +12,7 @@ Broadcast Utilities Collection for Thruk
 
 use strict;
 use warnings;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 ##############################################
 

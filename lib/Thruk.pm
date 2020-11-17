@@ -14,7 +14,7 @@ use strict;
 use warnings;
 use Cwd qw/abs_path/;
 use Time::HiRes;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 use Thruk::Utils::Crypt ();
 use Thruk::Utils::IO ();
 

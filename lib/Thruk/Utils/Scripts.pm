@@ -12,7 +12,7 @@ Utilities Collection for scripting with Thruk.
 
 use warnings;
 use strict;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 ##############################################
 

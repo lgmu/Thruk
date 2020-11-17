@@ -8,7 +8,7 @@ use Thruk::Utils::CookieAuth;
 use Thruk::Controller::login;
 use Thruk::Utils::Crypt;
 use Thruk::Utils::IO;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 =head1 NAME
 

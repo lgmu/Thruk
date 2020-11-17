@@ -9,7 +9,7 @@ use Data::Dumper qw/Dumper/;
 use POSIX ();
 use Storable ();
 use Class::Inspector ();
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 use Thruk::Utils::Filter ();
 use Thruk::Utils::Broadcast ();
 use Thruk::Utils::IO ();

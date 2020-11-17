@@ -6,7 +6,7 @@ use Data::Dumper;
 use Carp qw/confess/;
 use Module::Load qw/load/;
 use Cpanel::JSON::XS qw/decode_json encode_json/;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 use parent 'Thruk::Backend::Provider::Base';
 
 =head1 NAME

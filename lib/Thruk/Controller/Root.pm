@@ -3,7 +3,7 @@ package Thruk::Controller::Root;
 use strict;
 use warnings;
 use URI::Escape qw/uri_escape/;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 =head1 NAME
 

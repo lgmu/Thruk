@@ -18,7 +18,7 @@ use File::Temp qw/tempfile/;
 use File::Slurp qw/read_file/;
 use POSIX ();
 use Monitoring::Availability;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 ##############################################
 

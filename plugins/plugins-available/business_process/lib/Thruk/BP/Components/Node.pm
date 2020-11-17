@@ -6,7 +6,7 @@ use Thruk::Utils;
 use Thruk::BP::Functions;
 use Thruk::BP::Utils;
 use Thruk::Utils::Filter;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 =head1 NAME
 

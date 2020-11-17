@@ -23,7 +23,7 @@ use Encode qw/encode_utf8/;
 use File::Slurp qw/read_file/;
 use Carp qw/confess/;
 use File::Copy qw/move/;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 ##############################################
 my $hashed_key_file_regex = qr/^([a-zA-Z0-9]+)(\.[A-Z]+\-\d+|)$/mx;

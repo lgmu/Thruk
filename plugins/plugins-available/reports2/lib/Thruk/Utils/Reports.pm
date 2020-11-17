@@ -23,7 +23,7 @@ use Thruk::Utils::Reports::Render;
 use Thruk::Views::ToolkitRenderer;
 use Thruk::Utils::External;
 use Thruk::Action::AddDefaults;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 use MIME::Lite;
 use File::Copy;
 use Encode qw(encode_utf8 decode_utf8 encode);

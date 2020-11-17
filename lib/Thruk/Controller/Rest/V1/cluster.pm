@@ -3,7 +3,7 @@ package Thruk::Controller::Rest::V1::cluster;
 use strict;
 use warnings;
 use Thruk::Controller::rest_v1;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 =head1 NAME
 

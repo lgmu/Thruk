@@ -9,7 +9,7 @@ use Carp;
 
 use Thruk::Utils::Filter;
 use Thruk::BP::Components::BP;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 =head1 NAME
 

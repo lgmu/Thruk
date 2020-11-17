@@ -23,8 +23,8 @@ use File::Slurp qw/read_file/;
 use File::Copy qw/move copy/;
 use Cwd qw/abs_path/;
 use Time::HiRes qw/sleep/;
-use Thruk qw//;
-use Thruk::Utils::Log;
+use Thruk ();
+use Thruk::Utils::Log qw/:all/;
 #use Thruk::Timer qw/timing_breakpoint/;
 
 $Thruk::Utils::IO::MAX_LOCK_RETRIES = 20;

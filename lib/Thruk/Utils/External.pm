@@ -18,7 +18,7 @@ use Time::HiRes ();
 use File::Slurp qw/read_file/;
 use Storable qw/store retrieve/;
 use POSIX ":sys_wait_h";
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 ##############################################
 

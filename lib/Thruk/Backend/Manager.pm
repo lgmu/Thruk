@@ -9,7 +9,7 @@ use Time::HiRes qw/gettimeofday tv_interval/;
 use Thruk ();
 use Thruk::Utils ();
 use Thruk::Utils::Filter ();
-use Thruk::Utils::Log; # TODO: add test case to check includes
+use Thruk::Utils::Log qw/:all/;
 #use Thruk::Timer qw/timing_breakpoint/;
 
 our $AUTOLOAD;

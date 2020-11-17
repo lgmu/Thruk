@@ -45,10 +45,10 @@ The logcache command creates/updates the mysql/mariadb logfile cache.
 
 use warnings;
 use strict;
-use Thruk::Utils qw//;
-use Thruk::Utils::Log;
+use Thruk::Utils ();
+use Thruk::Utils::Log qw/:all/;
 use Time::HiRes qw/gettimeofday tv_interval/;
-use Getopt::Long qw//;
+use Getopt::Long ();
 
 ##############################################
 

@@ -19,7 +19,7 @@ use warnings;
 use File::Slurp qw/read_file/;
 use Carp qw/confess/;
 use Thruk::Utils;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 our $possible_roles = [
     'authorized_for_admin',

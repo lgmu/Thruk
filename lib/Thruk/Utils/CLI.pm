@@ -15,16 +15,16 @@ use warnings;
 use strict;
 use Carp;
 use Data::Dumper qw/Dumper/;
-use Thruk::UserAgent qw//;
+use Thruk::UserAgent ();
 use Cpanel::JSON::XS qw/encode_json decode_json/;
 use File::Slurp qw/read_file/;
 use Encode qw(encode_utf8);
 use Time::HiRes qw/gettimeofday tv_interval/;
 use HTTP::Request 6.12 ();
 use Module::Load qw/load/;
-use Thruk::Utils qw//;
-use Thruk::Utils::IO qw//;
-use Thruk::Utils::Log;
+use Thruk::Utils ();
+use Thruk::Utils::IO ();
+use Thruk::Utils::Log qw/:all/;
 
 ##############################################
 
@@ -362,7 +362,7 @@ sub _run {
         Thruk::Backend::Pool::init_backend_thread_pool();
     }
 
-    _debug("_run(): building local response");
+    _debug2("_run(): building local response");
 
     # catch prints when not attached to a terminal and redirect them to our logger
     local $| = 1;
@@ -492,7 +492,7 @@ sub _internal_request {
     my $res    = $app->request(HTTP::Request->new($method, $url, [], $postdata));
     my $c      = $Thruk::Request::c;
     my $failed = ( $res->code == 200 ? 0 : 1 );
-    _debug("_internal_request() done");
+    _debug2("_internal_request() done");
     return($c, $failed, $res);
 }
 

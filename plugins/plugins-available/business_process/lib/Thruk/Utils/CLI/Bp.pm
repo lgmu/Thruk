@@ -58,7 +58,7 @@ use strict;
 use Getopt::Long ();
 use Time::HiRes qw/gettimeofday tv_interval sleep/;
 use Thruk::Utils;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 ##############################################
 

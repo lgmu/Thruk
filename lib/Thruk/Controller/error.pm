@@ -5,7 +5,7 @@ use warnings;
 use Carp qw/confess longmess/;
 use Data::Dumper;
 use Time::HiRes qw/tv_interval/;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 =head1 NAME
 

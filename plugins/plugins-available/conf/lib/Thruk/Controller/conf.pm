@@ -15,7 +15,7 @@ use Thruk::Utils::Conf;
 use Thruk::Utils::Conf::Defaults;
 use Thruk::Utils::Plugin;
 use Thruk::Authentication::User;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 #use Thruk::Timer qw/timing_breakpoint/;
 
 =head1 NAME

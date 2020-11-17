@@ -2,7 +2,7 @@ package Thruk::Controller::mobile;
 
 use strict;
 use warnings;
-use Thruk::Utils::Log;
+use Thruk::Utils::Log qw/:all/;
 
 =head1 NAME
 
