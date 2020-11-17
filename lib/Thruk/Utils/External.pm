@@ -733,19 +733,17 @@ sub do_child_stuff {
     $c->stats->profile(begin => 'External Job: '.$id) if $id;
     $c->stats->profile(comment => sprintf('time: %s - host: %s - pid: %s', (scalar localtime), $c->config->{'hostname'}, $$));
 
-    ## no critic
-    $ENV{'THRUK_MODE'} = 'CLI';
-    ## use critic
     delete $ENV{'THRUK_VERBOSE'};
     delete $ENV{'THRUK_PERFORMANCE_DEBUG'};
 
     Thruk::restore_signal_handler();
 
     ## no critic
+    $ENV{'THRUK_MODE'}               = 'CLI';
     $ENV{'THRUK_NO_CONNECTION_POOL'} = 1; # don't use connection pool after forking
     $ENV{'NO_EXTERNAL_JOBS'}         = 1; # don't fork twice
     $ENV{'THRUK_JOB_ID'}             = $id;
-    $ENV{'THRUK_JOB_DIR'}            = $dir; # make job id available
+    $ENV{'THRUK_JOB_DIR'}            = $dir;
 
     # make remote user available
     if($c->user_exists) {

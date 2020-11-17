@@ -210,22 +210,10 @@ sub _audit_log {
         return;
     }
 
-    # log to thruk.log but remain screen log setting
-    # TODO: check
-    my $logged = 0;
-    #if($self->{'_log_type'} && $self->{'_log_type'} eq 'screen') {
-    #    local $ENV{'THRUK_MODE'} = undef;
-    #    $self->init_logging();
-    #    # if no logfile is set, do not log it twice
-    #    if($self->{'_log_type'} ne 'screen') {
-    #        $self->log->info($msg);
-    #        # change back
-    #        $self->{'_log'} = 'screen';
-    #        $logged = 1;
-    #    }
-    #}
-
-    _info($msg) if(!$logged || $print);
+    # log to thruk.log and print to screen
+    init_logging() unless $logger;
+    $filelogger->info($msg) if $filelogger;
+    _info($msg) if($print || !$filelogger);
 
     if(defined $config->{'audit_logs'} && $config->{'audit_logs'}->{'logfile'}) {
         my $file = $config->{'audit_logs'}->{'logfile'};

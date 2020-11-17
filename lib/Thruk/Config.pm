@@ -818,12 +818,10 @@ return thruk version string
 =cut
 
 sub get_thruk_version {
-    my($c, $config) = @_;
-    $config = $c->config unless $config;
-    if($config->{'branch'}) {
-        return($config->{'version'}.'-'.$config->{'branch'});
+    if($branch) {
+        return($VERSION.'-'.$branch);
     }
-    return($config->{'version'});
+    return($VERSION);
 }
 
 ##############################################
