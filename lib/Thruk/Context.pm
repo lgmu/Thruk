@@ -19,6 +19,7 @@ use Thruk::Utils;
 use Thruk::Utils::IO;
 use Thruk::Utils::CookieAuth;
 use Thruk::Utils::APIKeys;
+use Thruk::Utils::Log;
 
 =head1 NAME
 
@@ -80,7 +81,7 @@ sub new {
             'memory_begin'  => $memory_begin,
     });
     bless($self, $class);
-    weaken($self->{'app'}) unless $ENV{'THRUK_SRC'} eq 'CLI';
+    weaken($self->{'app'}) unless Thruk->mode eq 'CLI';
     $self->stats->enable();
 
     # extract non-url encoded q= param from raw body parameters
@@ -136,25 +137,6 @@ sub response {
     return($_[0]->{'res'});
 }
 
-=head2 log
-
-return log object
-
-=cut
-sub log {
-    return($_[0]->app->log);
-}
-
-=head2 audit_log
-
-return audit_log object
-
-=cut
-sub audit_log {
-    my($c, @args) = @_;
-    return($c->app->audit_log(@args));
-}
-
 =head2 cluster
 
 return cluster object
@@ -182,6 +164,7 @@ sub detach {
     my($c, $url) = @_;
     my($package, $filename, $line) = caller;
     $c->stats->profile(comment => 'detached to '.$url.' from '.$package.':'.$line);
+    _debug2("detach to ".$url);
     # errored flag is set in error controller to avoid recursion if error controller
     # itself throws an error, just bail out in that case
     if(!$c->{'errored'} && $url =~ m|/error/index/(\d+)$|mx) {
@@ -202,6 +185,8 @@ sub detach_error {
     $c->stash->{'error_data'} = $data;
     my($package, $filename, $line) = caller;
     $c->stats->profile(comment => 'detach_eror from '.$package.':'.$line);
+    _debug2("detach_error:");
+    _debug2($data);
     # errored flag is set in error controller to avoid recursion if error controller
     # itself throws an error, just bail out in that case
     if(!$c->{'errored'}) {
@@ -284,7 +269,7 @@ options are: {
 =cut
 sub authenticate {
     my($c, %options) = @_;
-    $c->log->debug("checking authenticaton") if Thruk->verbose;
+    _debug("checking authenticaton") if Thruk->verbose;
     confess("authenticate called multiple times, use change_user instead.") if $c->user_exists;
     delete $c->stash->{'remote_user'};
     delete $c->{'user'};
@@ -321,7 +306,7 @@ sub authenticate {
     return unless $user;
     if(!$internal) {
         if($user->{'settings'}->{'login'} && $user->{'settings'}->{'login'}->{'locked'}) {
-            $c->log->debug(sprintf("user account '%s' is locked", $user->{'username'})) if Thruk->verbose;
+            _debug(sprintf("user account '%s' is locked", $user->{'username'})) if Thruk->verbose;
             $c->error("account is locked, please contact an administrator");
             return;
         }
@@ -329,11 +314,11 @@ sub authenticate {
     _set_stash_user($c, $user, $auth_src);
     $c->{'user'}->{'original_username'} = $original_username;
     $user->set_dynamic_attributes($c, $options{'skip_db_access'},$roles);
-    $c->log->debug(sprintf("authenticated as '%s' - auth src '%s'", $user->{'username'}, $auth_src)) if Thruk->verbose;
+    _debug(sprintf("authenticated as '%s' - auth src '%s'", $user->{'username'}, $auth_src)) if Thruk->verbose;
 
     # set session id for all requests
     if(!$sessiondata && !$internal) {
-        if(defined $ENV{'THRUK_SRC'} && ($ENV{'THRUK_SRC'} ne 'CLI' and $ENV{'THRUK_SRC'} ne 'SCRIPTS')) {
+        if(Thruk->mode ne 'CLI') {
             ($sessionid,$sessiondata) = Thruk::Utils::get_fake_session($c, undef, $username, undef, $c->req->address);
             $c->res->cookies->{'thruk_auth'} = {value => $sessionid, path => $c->stash->{'cookie_path'}, httponly => 1 };
         }
@@ -445,7 +430,7 @@ sub _request_username {
         $auth_src = "default_user_name";
     }
 
-    elsif(!defined $username && defined $ENV{'THRUK_SRC'} && $ENV{'THRUK_SRC'} eq 'CLI') {
+    elsif(!defined $username && Thruk->mode eq 'CLI') {
         $username = $c->config->{'default_cli_user_name'};
         $auth_src = "cli";
     }
@@ -477,7 +462,7 @@ sub error {
     my($c, $error) = @_;
     return($c->{'errors'}) unless $error;
     push @{$c->{'errors'}}, $error;
-    $c->log->debug($error);
+    _debug($error);
     return;
 }
 
@@ -680,6 +665,7 @@ sub sub_request {
         'plack.cookie.string' => $c->env->{'plack.cookie.string'},
     };
     $env->{'plack.request.body_parameters'} = [%{$postdata}] if $postdata;
+    _debug2("sub_request to ".$url);
     my $sub_c = Thruk::Context->new($c->app, $env);
     $sub_c->{'user'} = $c->user;
     $sub_c->stash->{'remote_user'} = $c->stash->{'remote_user'};

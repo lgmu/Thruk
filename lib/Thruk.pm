@@ -14,6 +14,7 @@ use strict;
 use warnings;
 use Cwd qw/abs_path/;
 use Time::HiRes;
+use Thruk::Utils::Log;
 use Thruk::Utils::Crypt ();
 use Thruk::Utils::IO ();
 
@@ -22,22 +23,9 @@ use 5.008000;
 our $VERSION = '2.38';
 
 ###################################################
-# create connection pool
-# has to be done before the binmode
-# or even earlier to save memory
-BEGIN {
-    if(!$ENV{'THRUK_SRC'} || $ENV{'THRUK_SRC'} ne 'TEST') {
-        require Thruk::Backend::Pool;
-        Thruk::Backend::Pool::init_backend_thread_pool();
-    }
-}
-
-###################################################
 # load timing class
-BEGIN {
-    #use Thruk::Timer qw/timing_breakpoint/;
-    #&timing_breakpoint('starting thruk');
-}
+#use Thruk::Timer qw/timing_breakpoint/;
+#&timing_breakpoint('starting thruk');
 
 ###################################################
 # clean up env
@@ -82,6 +70,11 @@ returns the psgi code ref
 sub startup {
     my($class) = @_;
 
+    if(Thruk->mode ne 'TEST') {
+        require Thruk::Backend::Pool;
+        Thruk::Backend::Pool::init_backend_thread_pool();
+    }
+
     require Thruk::Context;
     require Thruk::Utils;
     require Thruk::Utils::IO;
@@ -97,7 +90,7 @@ sub startup {
 
     my $app = $class->_build_app();
 
-    if($ENV{'THRUK_SRC'} eq 'DebugServer' || $ENV{'THRUK_SRC'} eq 'TEST') {
+    if(Thruk->mode eq 'DEVSERVER' || Thruk->mode eq 'TEST') {
         require  Plack::Middleware::Static;
         $app = Plack::Middleware::Static->wrap($app,
                     path         => sub {
@@ -137,14 +130,9 @@ sub _build_app {
 
     $self->{'errors'} = [];
 
-    $config = $Thruk::Utils::IO::config;
-    if(!$config) {
-        require Thruk::Config;
-        $config = Thruk::Config::set_config_env();
-    }
-    $self->init_logging() if $config->{'thruk_verbose'}; # must be reinitialized
+    my $config = Thruk->config;
     $self->{'config'} = $config;
-    $Thruk::Utils::IO::config = $config;
+    Thruk::Utils::Log::reset_logging();
 
     for my $key (@Thruk::Action::AddDefaults::stash_config_keys) {
         confess("$key not defined in config,\n".Dumper($config)) unless defined $config->{$key};
@@ -160,7 +148,6 @@ sub _build_app {
     $self->_add_additional_roles();
     #&timing_breakpoint('startup() cgi.cfg parsed');
 
-    $self->_create_secret_file();
     $self->set_timezone();
     $self->_set_ssi();
     $self->_setup_pidfile();
@@ -175,7 +162,7 @@ sub _build_app {
             next unless $Thruk::Backend::Pool::peers->{$key}->{'class'}->{'live'};
             next unless $Thruk::Backend::Pool::peers->{$key}->{'class'}->{'live'}->{'backend_obj'};
             my $peer_cls = $Thruk::Backend::Pool::peers->{$key}->{'class'}->{'live'}->{'backend_obj'};
-            $peer_cls->{'logger'} = $self->log;
+            $peer_cls->{'logger'} = Thruk::Utils::Log->log();
             $peer_cls->verbose(1);
         }
     }
@@ -228,7 +215,7 @@ sub _build_app {
     # load routes dynamically from plugins
     our $routes_already_loaded;
     $routes_already_loaded = {} unless defined $routes_already_loaded;
-    for my $plugin_dir (glob($self->{'config'}->{'plugin_path'}.'/plugins-enabled/*/lib/Thruk/Controller/*.pm')) {
+    for my $plugin_dir (glob($config->{'plugin_path'}.'/plugins-enabled/*/lib/Thruk/Controller/*.pm')) {
         my $route_file = $plugin_dir;
         $route_file =~ s|/lib/Thruk/Controller/.*\.pm$|/routes|gmx;
         if(-f $route_file) {
@@ -239,7 +226,7 @@ sub _build_app {
             eval("#line 1 $route_file\n".read_file($route_file));
             ## use critic
             if($@) {
-                $self->log->error("error while loading routes from ".$route_file.": ".$@);
+                _error("error while loading routes from ".$route_file.": ".$@);
                 confess($@);
             }
             $routes_already_loaded->{$route_file} = 1;
@@ -253,7 +240,7 @@ sub _build_app {
                 $plugin_class->add_routes($self, $self->{'routes'}) unless $err;
             };
             $err = $@ if $@;
-            $self->log->error("disabled broken plugin $plugin_class: ".$err) if $err;
+            _error("disabled broken plugin $plugin_class: ".$err) if $err;
         } else {
             die("unknown plugin folder format: $plugin_dir");
         }
@@ -290,7 +277,7 @@ sub _dispatcher {
     $Thruk::COUNT++;
     #&timing_breakpoint("_dispatcher: ".$env->{PATH_INFO}, "reset");
     # connection keep alive breaks IE in development server
-    if($ENV{'THRUK_SRC'} eq 'DebugServer' || $ENV{'THRUK_SRC'} eq 'TEST') {
+    if(Thruk->mode eq 'DEVSERVER' || Thruk->mode eq 'TEST') {
         delete $env->{'HTTP_CONNECTION'};
     }
     my $c = Thruk::Context->new($thruk, $env);
@@ -310,8 +297,8 @@ sub _dispatcher {
     $c->cluster->refresh() if $config->{'cluster_enabled'};
 
     if(Thruk->verbose) {
-        $c->log->debug(sprintf("_dispatcher: %s\n", $url));
-        $c->log->debug(sprintf("params:      %s\n", Thruk::Utils::dump_params($c->req->parameters))) if($c->req->parameters and scalar keys %{$c->req->parameters} > 0);
+        _debug(sprintf("_dispatcher: %s\n", $url));
+        _debug(sprintf("params:      %s\n", Thruk::Utils::dump_params($c->req->parameters))) if($c->req->parameters and scalar keys %{$c->req->parameters} > 0);
     }
 
     ###############################################
@@ -326,9 +313,9 @@ sub _dispatcher {
     my $begin_err = $@;
     if($begin_err) {
         if(!$c->{'detached'}) {
-            $c->log->error($begin_err);
+            _error($begin_err);
         } else {
-            $c->log->debug($begin_err);
+            _debug($begin_err);
         }
         $c->{'errored'} = 1;
     }
@@ -363,7 +350,7 @@ sub _dispatcher {
         };
         my $err = $@;
         if($err && !$c->{'detached'}) { # prevent overriding previously detached errors
-            $c->log->error("Error path_info: ".$path_info) unless $c->req->url;
+            _error("Error path_info: ".$path_info) unless $c->req->url;
             $c->error($err);
             Thruk::Controller::error::index($c, 13);
         }
@@ -375,7 +362,7 @@ sub _dispatcher {
         };
         my $err = $@;
         if($err && !$c->{'detached'}) {
-            $c->log->error("Error path_info: ".$path_info) unless $c->req->url;
+            _error("Error path_info: ".$path_info) unless $c->req->url;
             $c->error($err);
             Thruk::Controller::error::index($c, 13);
         }
@@ -393,7 +380,7 @@ sub _dispatcher {
         };
         $err = $@;
         if($err && !$c->{'detached'}) {
-            $c->log->error("Error path_info: ".$path_info) unless $c->req->url;
+            _error("Error path_info: ".$path_info) unless $c->req->url;
             $c->error($err);
             Thruk::Controller::error::index($c, 13);
             Thruk::Views::ToolkitRenderer::render_tt($c);
@@ -457,10 +444,11 @@ sub find_route_match {
 
 =cut
 sub config {
-    unless($config) {
-        require Thruk::Config;
-        $config = Thruk::Config::set_config_env();
-    }
+    my($self, $no_recurse) = @_;
+    return($config) if $config;
+    return if $no_recurse;
+    require Thruk::Config;
+    $config = Thruk::Config::set_config_env();
     return($config);
 }
 
@@ -511,147 +499,13 @@ sub obj_db_model {
 
 ###################################################
 
-=head2 log
-
-    make log accessible via Thruk->log
-
-=cut
-sub log {
-    my $app = ref($_[0]) ne "" ? $_[0] : $thruk;
-    if($app->{'_log'} && $app->{'_log'} eq 'screen') {
-        $app->init_logging(1);
-    }
-    return($app->{'_log'} ||= $app->init_logging());
-}
-
-###################################################
-
-=head2 audit_log
-
-    audit_log logs something with info log level and
-    in case screen logger is active, logs it also to the logfile.
-
-=cut
-sub audit_log {
-    my($self, $category, $msg, $user, $sessionid, $print) = @_;
-    $self = ref($self) ne "" ? $self : $thruk;
-    $print = $print // 1;
-
-    if(!$user) {
-        $user = '?';
-        if(defined $Thruk::Request::c) {
-            my $c = $Thruk::Request::c;
-            $user = $c->stash->{'remote_user'} // '?';
-        }
-    }
-
-    if(!$sessionid) {
-        if(defined $Thruk::Request::c) {
-            my $c = $Thruk::Request::c;
-            if($c->{'session'}) {
-                $sessionid = $c->{'session'}->{'hashed_key'};
-            }
-        }
-    }
-    if(!$sessionid) {
-        if($ENV{'THRUK_SRC'} && $ENV{'THRUK_SRC'} eq 'CLI') {
-            $sessionid = 'command line';
-        }
-    }
-    if(!$sessionid) {
-        $sessionid = '?';
-    }
-
-    $msg = sprintf("[%s][%s][%s] %s", $category, $user, $sessionid, $msg);
-    if($ENV{'THRUK_TEST_NO_AUDIT_LOG'}) {
-        $ENV{'THRUK_TEST_NO_AUDIT_LOG'} .= "\n".$msg;
-        return;
-    }
-
-    if(defined $self->config->{'audit_logs'}->{$category} && !$self->config->{'audit_logs'}->{$category}) {
-        # audit log disabled for this category
-        $self->log->debug($msg);
-        return;
-    }
-
-    # log to thruk.log but remain screen log setting
-    my $logged = 0;
-    if($self->{'_log_type'} && $self->{'_log_type'} eq 'screen') {
-        local $ENV{'THRUK_SRC'} = undef;
-        $self->init_logging();
-        # if no logfile is set, do not log it twice
-        if($self->{'_log_type'} ne 'screen') {
-            $self->log->info($msg);
-            # change back
-            $self->{'_log'} = 'screen';
-            $logged = 1;
-        }
-    }
-
-    $self->log->info($msg) if(!$logged || $print);
-
-    if(defined $self->config->{'audit_logs'} && $self->config->{'audit_logs'}->{'logfile'}) {
-        my $file = $self->config->{'audit_logs'}->{'logfile'};
-        my(undef, $microseconds) = Time::HiRes::gettimeofday();
-        my $milliseconds = substr(sprintf("%06s", $microseconds), 0, 3);
-        my @localtime = localtime;
-        my $log = sprintf("[%s,%s][%s]%s\n",
-            POSIX::strftime("%Y-%m-%d %H:%M:%S", @localtime),
-            $milliseconds,
-            $Thruk::HOSTNAME,
-            $msg,
-        );
-        $log =~ s/\n*$//gmx;
-        $file = POSIX::strftime($file, @localtime) if $file =~ m/%/gmx;
-        Thruk::Utils::IO::write($file, $log."\n", undef, 1);
-    }
-
-    return;
-}
-
-###################################################
-
-=head2 reset_logging
-
-    reset logging system, for example after starting child processes
-
-=cut
-sub reset_logging {
-    my($self) = @_;
-
-    return unless $self->{'_log'};
-    my $appenders = Log::Log4perl::appenders();
-    for my $name (keys %{$appenders}) {
-        my $appender = $appenders->{$name};
-        if($appender->{'appender'} && $appender->{'appender'}->{'fh'}) {
-            # enable closing logs for forked childs
-            $appender->{'appender'}->{'close'} = 1;
-            $appender->{'appender'}->{'close_after_write'} = 1;
-
-            # makes Log::Log4perl::Appender::File reopen its filehandle
-            $appender->{'appender'}->{'recreate'} = 1;
-
-            # result in write on close fh otherwise
-            CORE::close($appender->{'appender'}->{'fh'});
-            undef $appender->{'appender'}->{'fh'};
-        }
-    }
-
-    return;
-}
-
-###################################################
-
 =head2 verbose
 
     make verbose accessible via Thruk->verbose
 
 =cut
 sub verbose {
-    if($ENV{'THRUK_VERBOSE'}) {
-        return(1);
-    }
-    return(0);
+    return($ENV{'THRUK_VERBOSE'} // 0);
 }
 
 ###################################################
@@ -662,10 +516,7 @@ sub verbose {
 
 =cut
 sub debug {
-    if($ENV{'THRUK_VERBOSE'} && $ENV{'THRUK_VERBOSE'} >= 2) {
-        return(1);
-    }
-    return(0);
+    return(Thruk->verbose > 1);
 }
 
 ###################################################
@@ -676,10 +527,29 @@ sub debug {
 
 =cut
 sub trace {
-    if($ENV{'THRUK_VERBOSE'} && $ENV{'THRUK_VERBOSE'} >= 4) {
-        return(1);
-    }
-    return(0);
+    return(Thruk->verbose >= 4);
+}
+
+###################################################
+
+=head2 quiet
+
+    make quiet accessible via Thruk->quiet
+
+=cut
+sub quiet {
+    return($ENV{'THRUK_QUIET'} // 0);
+}
+
+###################################################
+
+=head2 mode
+
+    make THRUK_MODE accessible via Thruk->mode
+
+=cut
+sub mode {
+    return($ENV{'THRUK_MODE'} // "CLI");
 }
 
 ###################################################
@@ -720,21 +590,21 @@ sub _check_exit_reason {
 
     # print stacktrace
     if($request_runtime >= 10 && $sig eq 'TERM') {
-        printf(STDERR "ERROR: got signal %s while handling request, possible timeout in %s\n", $sig, $url);
+        _error("got signal %s while handling request, possible timeout in %s\n", $sig, $url);
     } else {
-        printf(STDERR "ERROR: got signal %s while handling request in %s\n", $sig, $url);
+        _error("got signal %s while handling request in %s\n", $sig, $url);
     }
-    printf(STDERR "ERROR: User:       %s\n", $c->stash->{'remote_user'}) if $c->stash->{'remote_user'};
-    printf(STDERR "ERROR: Runtime:    %1.fs\n", $request_runtime);
-    printf(STDERR "ERROR: Timeout:    %d set in %s:%s\n", $Thruk::last_alarm->{'value'}, $Thruk::last_alarm->{'caller'}->[1], $Thruk::last_alarm->{'caller'}->[2]) if ($sig eq 'ALRM' && $Thruk::last_alarm);
-    printf(STDERR "ERROR: Address:    %s\n", $c->req->address) if $c->req->address;
-    printf(STDERR "ERROR: Parameters: %s\n", Thruk::Utils::dump_params($c->req->parameters)) if($c->req->parameters and scalar keys %{$c->req->parameters} > 0);
+    _error("User:       %s\n", $c->stash->{'remote_user'}) if $c->stash->{'remote_user'};
+    _error("Runtime:    %1.fs\n", $request_runtime);
+    _error("Timeout:    %d set in %s:%s\n", $Thruk::last_alarm->{'value'}, $Thruk::last_alarm->{'caller'}->[1], $Thruk::last_alarm->{'caller'}->[2]) if ($sig eq 'ALRM' && $Thruk::last_alarm);
+    _error("Address:    %s\n", $c->req->address) if $c->req->address;
+    _error("Parameters: %s\n", Thruk::Utils::dump_params($c->req->parameters)) if($c->req->parameters and scalar keys %{$c->req->parameters} > 0);
     if($c->stash->{errorDetails}) {
         for my $row (split(/\n|<br>/mx, $c->stash->{errorDetails})) {
-            printf(STDERR "ERROR: %s\n", $row);
+            _error("%s\n", $row);
         }
     }
-    printf(STDERR "ERROR: Stacktrace: \n%s", $reason);
+    _error("Stacktrace: \n%s", $reason);
 
     # send sigusr1 to lmd to create a backtrace as well
     if($c->config->{'use_lmd_core'}) {
@@ -750,7 +620,7 @@ my $pidfile;
 sub _setup_pidfile {
     my($self) = @_;
     $pidfile  = $self->config->{'tmp_path'}.'/thruk.pid';
-    if(defined $ENV{'THRUK_SRC'} and $ENV{'THRUK_SRC'} eq 'FastCGI') {
+    if(Thruk->mode eq 'FASTCGI') {
         -s $pidfile || unlink($self->config->{'tmp_path'}.'/thruk.cache');
         open(my $fh, '>>', $pidfile) || warn("cannot write $pidfile: $!");
         print $fh $$."\n";
@@ -763,7 +633,7 @@ sub _setup_pidfile {
 sub _remove_pid {
     return unless $pidfile;
     local $SIG{PIPE} = 'IGNORE';
-    if(defined $ENV{'THRUK_SRC'} and $ENV{'THRUK_SRC'} eq 'FastCGI') {
+    if(Thruk->mode eq 'FASTCGI') {
         my $remaining = [];
         if($pidfile && -f $pidfile) {
             my $pids = [split(/\s/mx, read_file($pidfile))];
@@ -856,32 +726,6 @@ sub _clean_exit {
 }
 
 ###################################################
-# create secret file
-sub _create_secret_file {
-    my($self) = @_;
-    if(!defined $ENV{'THRUK_SRC'} || $ENV{'THRUK_SRC'} ne 'SCRIPTS') {
-        my $var_path   = $self->config->{'var_path'} or die("no var path!");
-        my $secretfile = $var_path.'/secret.key';
-        unless(-s $secretfile) {
-            open(my $fh, '>', $secretfile) or warn("cannot write to $secretfile: $!");
-            require Thruk::Utils::Crypt;
-            my $digest = Thruk::Utils::Crypt::random_uuid([time()]);
-            if(defined $fh) {
-                print $fh $digest;
-                Thruk::Utils::IO::close($fh, $secretfile);
-                chmod(0640, $secretfile);
-            }
-            $self->config->{'secret_key'} = $digest;
-        } else {
-            my $secret_key = read_file($secretfile);
-            chomp($secret_key);
-            $self->config->{'secret_key'} = $secret_key;
-        }
-    }
-    return;
-}
-
-###################################################
 
 =head2 set_timezone
 
@@ -934,82 +778,6 @@ sub _set_ssi {
     $self->config->{'ssi_includes'} = \%ssi;
     $self->config->{'ssi_path'}     = $ssi_dir;
     return;
-}
-
-###################################################
-
-=head2 init_logging
-
-    initialize logging
-
-returns logger object
-
-=cut
-
-sub init_logging {
-    my($self, $screen) = @_;
-    require Log::Log4perl;
-    my($log4perl_conf, $logger);
-
-    delete $self->config->{'log4perl_logfile_in_use'};
-    if(!defined $ENV{'THRUK_SRC'} || ($ENV{'THRUK_SRC'} ne 'CLI' && $ENV{'THRUK_SRC'} ne 'SCRIPTS')) {
-        if(defined $self->config->{'log4perl_conf'} && ! -s $self->config->{'log4perl_conf'} ) {
-            die("\n\n*****\nfailed to load log4perl config: ".$self->config->{'log4perl_conf'}.": ".$!."\n*****\n\n");
-        }
-        $log4perl_conf = $self->config->{'log4perl_conf'} || $self->config->{'home'}.'/log4perl.conf';
-    }
-    require Log::Log4perl;
-    if(!$screen && defined $log4perl_conf && -s $log4perl_conf) {
-        $log4perl_conf = read_file($log4perl_conf);
-        if($log4perl_conf =~ m/log4perl\.appender\..*\.filename=(.*)\s*$/mx) {
-            $self->config->{'log4perl_logfile_in_use'} = $1;
-        }
-        $log4perl_conf =~ s/\.Threshold=INFO/.Threshold=DEBUG/gmx if $self->debug;
-        Log::Log4perl::init(\$log4perl_conf);
-        $logger = Log::Log4perl::get_logger("thruk.log");
-        $self->{'_log_type'} = 'file';
-    } else {
-        my $format = '[%d{ABSOLUTE}][%p] %m{chomp}%n';
-        if($ENV{'TEST_AUTHOR'} || $self->config->{'thruk_author'} || $self->debug) {
-            $format = '[%d{ABSOLUTE}][%p][%-50Z] %m{chomp}%n';
-            my $cwd = Cwd::getcwd;
-            Log::Log4perl::Layout::PatternLayout::add_global_cspec('Z', sub {
-                my($layout, $message, $category, $priority, $caller_level) = @_;
-                my @caller = caller($caller_level);
-                while($caller[0] =~ m/Thruk::Utils::Log/mx) {
-                    $caller_level++;
-                    @caller = caller($caller_level);
-                }
-                my $path = abs_path($caller[1]) || $caller[1];
-                $path =~ s%^$cwd/%./%gmx;
-                $path =~ s%^/opt/omd/versions/.*?/share/thruk/%./%gmx;
-                $path =~ s%/plugins/plugins-available/%/plug/%gmx;
-                $path =~ s%^\./%%gmx;
-                return(sprintf("%s:%d", $path, $caller[2]));
-            });
-        }
-        my $log_conf = "
-        log4perl.logger                    = DEBUG, Screen
-        log4perl.appender.Screen           = Log::Log4perl::Appender::Screen
-        log4perl.appender.Screen.Threshold = DEBUG
-        log4perl.appender.Screen.layout    = Log::Log4perl::Layout::PatternLayout
-        log4perl.appender.Screen.layout.ConversionPattern = $format
-        ";
-        $log_conf =~ s/Threshold\s*=\s*\w+$/Threshold = ERROR/gmx if $ENV{'THRUK_QUIET'};
-        Log::Log4perl::init(\$log_conf);
-        $logger = Log::Log4perl->get_logger("thruk.screen");
-        $self->{'_log_type'} = 'screen';
-    }
-    $self->{'_log'} = $logger;
-    if(Thruk->verbose) {
-        $logger->level('DEBUG');
-        $logger->debug("logging initialized");
-    }
-    else {
-        $logger->level('INFO');
-    }
-    $logger->level('ERROR') if $ENV{'THRUK_QUIET'};
-    return($logger);
 }
 
 ###################################################
@@ -1095,7 +863,7 @@ sub _check_plugin_cron_file {
         if(!$found) {
             symlink('../thruk/plugins-enabled/'.$plugin_name.'/cron', 'etc/cron.d/thruk-plugin-'.$plugin_name);
             Thruk::Utils::IO::cmd("omd status crontab >/dev/null 2>&1 && omd reload crontab > /dev/null");
-            $self->log->info("enabled cronfile for plugin: ".$plugin_name);
+            _info("enabled cronfile for plugin: ".$plugin_name);
         }
     }
     return;
@@ -1107,7 +875,7 @@ sub _cleanup_plugin_cron_files {
     my @existing_cron_files = glob($ENV{'OMD_ROOT'}.'/etc/cron.d/*');
     for my $file (@existing_cron_files) {
         if($file =~ m/\/thruk\-plugin\-/mx && -l $file && !-e $file) {
-            $self->log->info("removed old plugin cronfile: ".$file);
+            _info("removed old plugin cronfile: ".$file);
             unlink($file);
         }
     }
@@ -1164,11 +932,11 @@ sub finalize_request {
             Devel::Cycle::find_cycle($c, sub {
                 my($path) = @_;
                 $counter++;
-                $c->log->error("found leaks:") if $counter == 1;
-                $c->log->error("Cycle ($counter):");
+                _error("found leaks:") if $counter == 1;
+                _error("Cycle ($counter):");
                 foreach (@{$path}) {
                     my($type,$index,$ref,$value,$is_weak) = @{$_};
-                    $c->log->error(sprintf "\t%30s => %-30s\n",($is_weak ? 'w-> ' : '').Devel::Cycle::_format_reference($type,$index,$ref,0),Devel::Cycle::_format_reference(undef,undef,$value,1));
+                    _error(sprintf "\t%30s => %-30s\n",($is_weak ? 'w-> ' : '').Devel::Cycle::_format_reference($type,$index,$ref,0),Devel::Cycle::_format_reference(undef,undef,$value,1));
                 }
             });
         }
@@ -1192,13 +960,13 @@ sub finalize_request {
     }
     # slow pages log
     if($ENV{'THRUK_PERFORMANCE_DEBUG'} && $c->config->{'slow_page_log_threshold'} > 0 && $elapsed > $c->config->{'slow_page_log_threshold'}) {
-        $c->log->warn("***************************");
-        $c->log->warn(sprintf("slow_page_log_threshold (%ds) hit, page took %.1fs to load.", $c->config->{'slow_page_log_threshold'}, $elapsed));
-        $c->log->warn(sprintf("page:    %s\n", $c->req->url)) if defined $c->req->url;
-        $c->log->warn(sprintf("params:  %s\n", Thruk::Utils::dump_params($c->req->parameters))) if($c->req->parameters and scalar keys %{$c->req->parameters} > 0);
-        $c->log->warn(sprintf("user:    %s\n", ($c->stash->{'remote_user'} // 'not logged in')));
-        $c->log->warn(sprintf("address: %s%s\n", $c->req->address, ($c->env->{'HTTP_X_FORWARDED_FOR'} ? ' ('.$c->env->{'HTTP_X_FORWARDED_FOR'}.')' : '')));
-        $c->log->warn($c->stats->report());
+        _warn("***************************");
+        _warn(sprintf("slow_page_log_threshold (%ds) hit, page took %.1fs to load.", $c->config->{'slow_page_log_threshold'}, $elapsed));
+        _warn(sprintf("page:    %s\n", $c->req->url)) if defined $c->req->url;
+        _warn(sprintf("params:  %s\n", Thruk::Utils::dump_params($c->req->parameters))) if($c->req->parameters and scalar keys %{$c->req->parameters} > 0);
+        _warn(sprintf("user:    %s\n", ($c->stash->{'remote_user'} // 'not logged in')));
+        _warn(sprintf("address: %s%s\n", $c->req->address, ($c->env->{'HTTP_X_FORWARDED_FOR'} ? ' ('.$c->env->{'HTTP_X_FORWARDED_FOR'}.')' : '')));
+        _warn($c->stats->report());
     }
 
     my $content_length = _set_content_length($res);
@@ -1216,7 +984,7 @@ sub finalize_request {
         my $waited = [];
         push @{$waited}, $c->stash->{'total_backend_waited'} ? sprintf("%.3fs", $c->stash->{'total_backend_waited'}) : '-';
         push @{$waited}, $c->stash->{'total_render_waited'} ? sprintf("%.3fs", $c->stash->{'total_render_waited'}) : '-';
-        $c->log->info(sprintf("%5d Req: %03d   mem:%7s MB %6s MB   dur:%6ss %16s   size:% 12s   stat: %d   url: %s",
+        _info(sprintf("%5d Req: %03d   mem:%7s MB %6s MB   dur:%6ss %16s   size:% 12s   stat: %d   url: %s",
                                 $$,
                                 $Thruk::COUNT,
                                 $c->stash->{'memory_end'},
@@ -1228,7 +996,7 @@ sub finalize_request {
                                 $url,
                     ));
     }
-    $c->log->debug($c->stats->report()) if Thruk->debug;
+    _debug($c->stats->report()) if Thruk->debug;
     $c->stats->clear() unless $ENV{'THRUK_KEEP_CONTEXT'};
 
     # save metrics to disk
@@ -1238,7 +1006,7 @@ sub finalize_request {
     Thruk::Config::finalize($c);
 
     # does this process need a restart?
-    if($ENV{'THRUK_SRC'} and $ENV{'THRUK_SRC'} eq 'FastCGI') {
+    if(Thruk->mode eq 'FASTCGI') {
         if($c->config->{'max_process_memory'}) {
             Thruk::Utils::check_memory_usage($c);
         }
@@ -1254,14 +1022,14 @@ sub _detect_timezone {
     my($self) = @_;
 
     if($ENV{'TZ'}) {
-        $self->log->debug(sprintf("server timezone: %s (from ENV)", $ENV{'TZ'})) if Thruk->verbose;
+        _debug(sprintf("server timezone: %s (from ENV)", $ENV{'TZ'})) if Thruk->verbose;
         return($ENV{'TZ'});
     }
 
     if(-r '/etc/timezone') {
         chomp(my $tz = read_file('/etc/timezone'));
         if($tz) {
-            $self->log->debug(sprintf("server timezone: %s (from /etc/timezone)", $tz)) if Thruk->verbose;
+            _debug(sprintf("server timezone: %s (from /etc/timezone)", $tz)) if Thruk->verbose;
             return $tz;
         }
     }
@@ -1269,18 +1037,18 @@ sub _detect_timezone {
     if(-r '/etc/sysconfig/clock') {
         my $content = read_file('/etc/sysconfig/clock');
         if($content =~ m/^\s*ZONE="([^"]+)"/mx) {
-            $self->log->debug(sprintf("server timezone: %s (from /etc/sysconfig/clock)", $1)) if Thruk->verbose;
+            _debug(sprintf("server timezone: %s (from /etc/sysconfig/clock)", $1)) if Thruk->verbose;
             return $1;
         }
         if($content =~ m/^\s*TIMEZONE="([^"]+)"/mx) {
-            $self->log->debug(sprintf("server timezone: %s (from /etc/sysconfig/clock)", $1)) if Thruk->verbose;
+            _debug(sprintf("server timezone: %s (from /etc/sysconfig/clock)", $1)) if Thruk->verbose;
             return $1;
         }
     }
 
     my $out = Thruk::Utils::IO::cmd("timedatectl 2>/dev/null");
     if($out =~ m/^\s*Time\ zone:\s+(\S+)/mx) {
-        $self->log->debug(sprintf("server timezone: %s (from timedatectl)", $1)) if Thruk->verbose;
+        _debug(sprintf("server timezone: %s (from timedatectl)", $1)) if Thruk->verbose;
         return($1);
     }
 
@@ -1288,13 +1056,13 @@ sub _detect_timezone {
     POSIX::tzset();
     my($std, $dst) = POSIX::tzname();
     if($std) {
-        $self->log->debug(sprintf("server timezone: %s (from POSIX::tzname)", $std)) if Thruk->verbose;
+        _debug(sprintf("server timezone: %s (from POSIX::tzname)", $std)) if Thruk->verbose;
         return($std);
     }
 
     # last ressort, date, fails for ex. to set CET instead of CEST
     my $tz = Thruk::Utils::IO::cmd("date +%Z");
-    $self->log->debug(sprintf("server timezone: %s (from date +%%Z)", $tz)) if Thruk->verbose;
+    _debug(sprintf("server timezone: %s (from date +%%Z)", $tz)) if Thruk->verbose;
     return $tz;
 }
 
@@ -1315,7 +1083,7 @@ sub _load_plugin_class {
             local $SIG{__WARN__} = sub { };
             return(_load_plugin_class($self, $class, 1));
         }
-        $self->log->error($err);
+        _error($err);
         return($err);
     }
     return;

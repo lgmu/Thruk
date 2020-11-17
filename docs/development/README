@@ -105,19 +105,14 @@ Can be used whenever backends will be accessed.
 ==== THRUK_NO_TOUCH_PERM
 Do not touch permissions of opened files.
 
-
-==== THRUK_PLUGIN_DEBUG
-Can be used to get more details when loading plugins.
-
-
-==== THRUK_SRC
+==== THRUK_MODE
 
 Can be one of:
 
-    - SCRIPTS
-    - CLI
-    - FastCGI
-    - TEST
+    - `FASTCGI`   - fast cgi script
+    - `DEVSERVER` - development server
+    - `CLI`       - bin/thruk and script/*
+    - `TEST`      - used in tests from t/*
 
 
 ==== THRUK_TEST_NO_AUDIT_LOG
@@ -134,5 +129,3 @@ print memory and cpu usage to stderr
 
 ==== PLACK_TEST_EXTERNALSERVER_URI
 Used to specify external test url during tests.
-
-

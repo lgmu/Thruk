@@ -3,6 +3,7 @@ package Thruk::Controller::reports2;
 use strict;
 use warnings;
 use Module::Load qw/load/;
+use Thruk::Utils::Log;
 
 =head1 NAME
 

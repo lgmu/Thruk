@@ -9,6 +9,7 @@ use Data::Dumper qw/Dumper/;
 use POSIX ();
 use Storable ();
 use Class::Inspector ();
+use Thruk::Utils::Log;
 use Thruk::Utils::Filter ();
 use Thruk::Utils::Broadcast ();
 use Thruk::Utils::IO ();
@@ -25,15 +26,13 @@ Generic Access to Thruks Config
 
 ###################################################
 # load timing class
-BEGIN {
-    #use Thruk::Timer qw/timing_breakpoint/;
-}
+#use Thruk::Timer qw/timing_breakpoint/;
 
 ######################################
 
 our $VERSION = '2.38';
 
-my $project_root = home('Thruk::Config') or confess('could not determine project_root: '.Dumper(\%INC));
+my $project_root = home() or confess('could not determine project_root: '.Dumper(\%INC));
 my $branch       = '2';
 my $gitbranch    = get_git_name($project_root);
 my $filebranch  = $branch || 1;
@@ -43,9 +42,6 @@ if($branch) {
     $branch = $gitbranch if $gitbranch;
 }
 confess('got no project_root') unless $project_root;
-## no critic
-$ENV{'THRUK_SRC'} = 'UNKNOWN' unless defined $ENV{'THRUK_SRC'};
-## use critic
 
 my $base_defaults = {
     'name'                                  => 'Thruk',
@@ -366,7 +362,7 @@ sub get_default_stash {
         'inject_stats'              => 1,
         'user_profiling'            => 0,
         'real_page'                 => '',
-        'make_test_mode'            => $ENV{'THRUK_SRC'} eq 'TEST' ? 1 : 0,
+        'make_test_mode'            => Thruk->mode eq 'TEST' ? 1 : 0,
         'version'                   => $VERSION,
         'branch'                    => $branch,
         'filebranch'                => $filebranch,
@@ -531,10 +527,10 @@ sub set_default_config {
     $ENV{'THRUK_GROUPS'}   = join(';', @{$groups});
     ## use critic
 
-    if(defined $ENV{'THRUK_SRC'} && $ENV{'THRUK_SRC'} eq 'CLI') {
+    if(Thruk->mode eq 'CLI') {
         if(defined $uid and $> == 0) {
             switch_user($uid, $groups);
-            print STDERR "ERROR: re-exec with uid $uid did not work\n";
+            _error("ERROR: re-exec with uid $uid did not work");
             exit(3);
         }
     }
@@ -579,12 +575,9 @@ sub set_default_config {
     $config->{'extra_version'}      = '' unless defined $config->{'extra_version'};
     $config->{'extra_version_link'} = '' unless defined $config->{'extra_version_link'};
 
-    ## no critic
-    $ENV{'THRUK_SRC'} = 'SCRIPTS' unless defined $ENV{'THRUK_SRC'};
-    ## use critic
     # external jobs can be disabled by env
     # don't disable for CLI, breaks config reload over http somehow
-    if(defined $ENV{'NO_EXTERNAL_JOBS'} || $ENV{'THRUK_SRC'} eq 'SCRIPTS') {
+    if(defined $ENV{'NO_EXTERNAL_JOBS'} || Thruk->mode eq 'SCRIPTS') {
         $config->{'no_external_job_forks'} = 1;
     }
 
@@ -594,7 +587,7 @@ sub set_default_config {
     my $plugin_dir = $config->{'plugin_path'};
     $plugin_dir = $plugin_dir.'/plugins-enabled/*/';
 
-    print STDERR "using plugins: ".$plugin_dir."\n" if $ENV{'THRUK_PLUGIN_DEBUG'};
+    _debug2("using plugins: ".$plugin_dir);
 
     for my $addon (glob($plugin_dir)) {
 
@@ -607,17 +600,17 @@ sub set_default_config {
             CORE::mkdir($config->{home}.'/root/thruk/plugins');
         }
 
-        print STDERR "loading plugin: ".$addon_name."\n" if $ENV{'THRUK_PLUGIN_DEBUG'};
+        _trace("loading plugin: ".$addon_name);
 
         # lib directory included?
         if(-d $addon.'lib') {
-            print STDERR " -> lib\n" if $ENV{'THRUK_PLUGIN_DEBUG'};
+            _trace(" -> lib");
             unshift(@INC, $addon.'lib');
         }
 
         # template directory included?
         if(-d $addon.'templates') {
-            print STDERR " -> templates\n" if $ENV{'THRUK_PLUGIN_DEBUG'};
+            _trace(" -> templates");
             push @{$config->{plugin_templates_paths}}, $addon.'templates';
         }
     }
@@ -631,11 +624,11 @@ sub set_default_config {
     for my $theme (sort glob($themes_dir)) {
         $theme =~ s/\/$//gmx;
         $theme =~ s/^.*\///gmx;
-        print STDERR "theme -> $theme\n" if $ENV{'THRUK_PLUGIN_DEBUG'};
+        _trace("theme -> ".$theme);
         push @themes, $theme;
     }
 
-    print STDERR "using themes: ".$themes_dir."\n" if $ENV{'THRUK_PLUGIN_DEBUG'};
+    _debug2("using themes: ".$themes_dir);
 
     $config->{'themes'} = \@themes;
 
@@ -761,9 +754,7 @@ sub _load_config_files {
                     my $ext;
                     if($tmpfile =~ m/\.([^.]+)$/mx) { $ext = $1; }
                     if(!$ext) {
-                        if($ENV{'THRUK_VERBOSE'} && $ENV{'THRUK_VERBOSE'} >= 1) {
-                            print STDERR "skipped config file: ".$tmpfile.", file has no extension, please use either cfg, conf or the hostname\n";
-                        }
+                        _debug2("skipped config file: ".$tmpfile.", file has no extension, please use either cfg, conf or the hostname");
                         next;
                     }
                     if($ext ne 'conf' && $ext ne 'cfg') {
@@ -771,9 +762,7 @@ sub _load_config_files {
                         our $hostname;
                         chomp($hostname = Thruk::Utils::IO::cmd("hostname")) unless $hostname;
                         if($tmpfile !~ m/\Q$hostname\E$/mx) {
-                            if($ENV{'THRUK_VERBOSE'} && $ENV{'THRUK_VERBOSE'} >= 1) {
-                                print STDERR "skipped config file: ".$tmpfile.", file does not end with our hostname '$hostname'\n";
-                            }
+                            _debug2("skipped config file: ".$tmpfile.", file does not end with our hostname '$hostname'");
                             next;
                         }
                     }
@@ -914,6 +903,7 @@ return home folder
 =cut
 sub home {
     my($class) = @_;
+    $class = 'Thruk::Config' unless $class;
     (my $file = "$class.pm") =~ s{::}{/}gmx;
     if(my $inc_entry = $INC{$file}) {
         $inc_entry = Cwd::abs_path($inc_entry);
@@ -954,7 +944,7 @@ sub expand_numeric_list {
             } elsif($block =~ m/^(\d+)$/gmx) {
                     $list->{$1} = 1;
             } else {
-                $c->log->error("'$block' is not a valid number or range") if defined $c;
+                _error("'$block' is not a valid number or range") if defined $c;
             }
         }
     }
@@ -1008,12 +998,9 @@ sub finalize {
     Thruk::Action::AddDefaults::restore_user_backends($c);
 
     if($Thruk::deprecations_log) {
-        if(    $ENV{'THRUK_SRC'} ne 'TEST'
-           and $ENV{'THRUK_SRC'} ne 'CLI'
-           and $ENV{'THRUK_SRC'} ne 'SCRIPTS'
-        ) {
+        if(Thruk->mode ne 'TEST' && Thruk->mode ne 'CLI') {
             for my $warning (@{$Thruk::deprecations_log}) {
-                $c->log->info($warning);
+                _info($warning);
             }
         }
         undef $Thruk::deprecations_log;
@@ -1129,9 +1116,7 @@ sub read_config_file {
     $files = list($files);
     my $conf = {};
     for my $f (@{$files}) {
-        if($ENV{'THRUK_VERBOSE'} && $ENV{'THRUK_VERBOSE'} >= 2) {
-            print STDERR "reading config file: ".$f."\n";
-        }
+        _debug2("reading config file: ".$f);
         # since perl 5.23 sysread on utf-8 handles is deprecated, so we need to open the file manually
         open my $fh, '<:encoding(UTF-8)', $f or die "Can't open '$f' for reading: $!";
         my @rows = <$fh>;
@@ -1261,9 +1246,9 @@ sub switch_user {
         ## use critic
     }
     my @cmd = _get_orig_cmd_line();
-    print STDERR "switching to uid: $uid\n" if $ENV{'THRUK_VERBOSE'};
+    _debug("switching to uid: $uid") if $ENV{'THRUK_VERBOSE'};
     POSIX::setuid($uid) || confess("setuid failed: ".$!);
-    print STDERR "re-exec: ".'"'.join('" "', @cmd).'"'."\n" if $ENV{'THRUK_VERBOSE'};
+    _debug("re-exec: ".'"'.join('" "', @cmd).'"');
     # clean perl5lib
     if($ENV{'PERL5LIB'}) {
         my @clean;
@@ -1318,8 +1303,8 @@ sub read_cgi_cfg {
        || $last_stat->[1] != $cgi_cfg_stat[1] # inode changed
        || $last_stat->[9] != $cgi_cfg_stat[9] # modify time changed
       ) {
-        $app->log->info("cgi.cfg has changed, updating...") if defined $last_stat;
-        $app->log->debug("reading $file");
+        _debug("cgi.cfg has changed, updating...") if defined $last_stat;
+        _debug2("reading $file");
         $app->{'cgi_cfg_stat'}      = \@cgi_cfg_stat;
         $app->{'cgi.cfg_effective'} = $file;
         $app->{'cgi_cfg'}           = read_config_file($file);

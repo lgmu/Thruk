@@ -37,7 +37,7 @@ use warnings;
 use Pod::Usage;
 use Getopt::Long;
 use Thruk::Utils::CLI;
-use Thruk::Utils::Log qw/_error _info _debug _trace/;
+use Thruk::Utils::Log;
 use Encode qw/encode_utf8/;
 
 binmode(STDOUT, ":encoding(UTF-8)");

@@ -18,7 +18,7 @@ use Time::HiRes ();
 use File::Slurp qw/read_file/;
 use Storable qw/store retrieve/;
 use POSIX ":sys_wait_h";
-use Thruk::Utils::Log qw/_error _info _debug _trace/;
+use Thruk::Utils::Log;
 
 ##############################################
 
@@ -236,7 +236,7 @@ sub render_page_in_background {
     return if $ENV{'THRUK_JOB_DIR'};
 
     # render page if not running inside a webserver
-    return if(!$ENV{'THRUK_SRC'} || ($ENV{'THRUK_SRC'} ne 'FastCGI' && $ENV{'THRUK_SRC'} ne 'DebugServer'));
+    return if(Thruk->mode ne 'FASTCGI' && Thruk->mode ne 'DEVSERVER');
 
     return if exists $c->req->parameters->{'noexternalforks'};
     return if $ENV{'THRUK_NO_BACKGROUND_PAGES'};
@@ -543,9 +543,9 @@ sub get_result {
     if(!defined $end[9]) {
         $end[9] = time();
         $err    = 'job was killed';
-        $c->log->error('killed job: '.$dir);
+        _error('killed job: '.$dir);
         my $folder = Thruk::Utils::IO::cmd("ls -la $dir");
-        $c->log->error($folder);
+        _error($folder);
     }
 
     my $time = $end[9] - $start[9];
@@ -640,7 +640,7 @@ sub job_page {
         if(defined $stash and defined $stash->{'original_url'}) { $c->stash->{'original_url'} = $stash->{'original_url'} }
         if((defined $err && $err ne '') && (!defined $rc || $rc != 0 || (!$out && !$stash))) {
             $c->error($err);
-            $c->log->error($err);
+            _error($err);
             return $c->detach('/error/index/23');
         }
         delete($stash->{'all_in_one_css'});
@@ -733,7 +733,7 @@ sub do_child_stuff {
     $c->stats->profile(begin => 'External Job: '.$id) if $id;
     $c->stats->profile(comment => sprintf('time: %s - host: %s - pid: %s', (scalar localtime), $c->config->{'hostname'}, $$));
 
-    delete $ENV{'THRUK_SRC'};
+    $ENV{'THRUK_MODE'} = 'CLI';
     delete $ENV{'THRUK_VERBOSE'};
     delete $ENV{'THRUK_PERFORMANCE_DEBUG'};
 
@@ -778,7 +778,7 @@ sub do_child_stuff {
     open(*STDOUT, ">>", $fallback_log) || die "can't reopen stdout to $fallback_log: $!";
 
     # logging must be reset after closing the filehandles
-    $c->app->reset_logging();
+    Thruk::Utils::Log::reset_logging();
 
     $c->stats->enable(1);
     $c->config->{'slow_page_log_threshold'} = 0;

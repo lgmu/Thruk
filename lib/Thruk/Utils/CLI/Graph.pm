@@ -62,7 +62,7 @@ The graph command exports pnp/grafana graphs
 
 use warnings;
 use strict;
-use Thruk::Utils::Log qw/_error _info _debug _trace/;
+use Thruk::Utils::Log;
 use Getopt::Long qw//;
 use File::Slurp qw/read_file/;
 
@@ -123,7 +123,7 @@ sub cmd {
     $cache_file = $cache_file.'-'.$start.'-'.$end.'-'.($opt->{'source'}||'').'-'.$width.'-'.$height.'.'.$format;
     $cache_file = $c->config->{'tmp_path'}.'/graphs/'.$cache_file;
     if(-e $cache_file) {
-        _debug("cache hit from ".$cache_file) if $Thruk::Utils::CLI::verbose >= 2;
+        _debug("cache hit from ".$cache_file);
         $c->stats->profile(end => "_cmd_graph($action)");
         return(scalar read_file($cache_file), 0);
     }
@@ -140,7 +140,7 @@ sub cmd {
             follow  => 1,
     });
     if(!$img) {
-        _debug("could not export any image, check if the host/service has a valid graph url.");
+        _info("could not export any image, check if the host/service has a valid graph url.");
         return("", 1);
     }
     if($format eq 'base64') {
@@ -151,14 +151,14 @@ sub cmd {
         $c->res->content_type('image/png');
     }
     Thruk::Utils::IO::write($cache_file, $img);
-    _debug("cached graph to ".$cache_file) if $Thruk::Utils::CLI::verbose >= 2;
+    _debug2("cached graph to ".$cache_file);
 
     # clean old cached files, threshold is 5minutes, since we mainly
     # want to cache files used from many seriel notifications
     for my $file (glob($c->config->{'tmp_path'}.'/graphs/*')) {
         my $mtime = (stat($file))[9];
         if($mtime < $now - 300) {
-            _debug("removed old cached file (mtime: ".scalar($mtime)."): ".$file) if $Thruk::Utils::CLI::verbose >= 2;
+            _debug2("removed old cached file (mtime: ".scalar($mtime)."): ".$file);
             unlink($file);
         }
     }

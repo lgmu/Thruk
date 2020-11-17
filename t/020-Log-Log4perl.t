@@ -14,7 +14,7 @@ BEGIN {
         my $rc = $?>>8;
         plan skip_all => 'there is a log4perl.conf already, cannot test' if $rc != 0;
     }
-    $ENV{'THRUK_SRC'}     = 'TEST';
+    $ENV{'THRUK_MODE'}     = 'TEST';
     $ENV{'THRUK_VERBOSE'} = 1;
     $ENV{'THRUK_USE_LMD_FEDERATION_FAILED'} = 1; # prevent errors logged from old LMD versions which would break the test
 }

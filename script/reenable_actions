@@ -66,11 +66,11 @@ my $comments = $db->get_comments(%{$options});
 for my $comm (@{$comments}) {
     my ($cmd) = $comm->{'comment'} =~ /^DISABLE_([A-Z_]+):/;
     if ($cmd) {
-        $c->log->debug("found comment for command DISABLE_$cmd");
+        _debug("found comment for command DISABLE_$cmd");
         if (($opt->{'action'} =~ /all/i) || ($cmd =~ /$opt->{'action'}/i)) {
-            $c->log->debug("command is of correct type - checking age of comment");
+            _debug("command is of correct type - checking age of comment");
             if ($comm->{'entry_time'} < time() - $opt->{'age'} * $SECONDS_PER_DAY) {
-                $c->log->debug("comment is older than " . $opt->{'age'} . " day(s) - undoing command and deleting comment");
+                _debug("comment is older than " . $opt->{'age'} . " day(s) - undoing command and deleting comment");
                 $options->{'backend'} = [$comm->{'peer_key'}];
                 # undo command
                 if ($cmd =~ /HOST/) {

@@ -25,7 +25,7 @@ use strict;
 use Getopt::Long ();
 use Cpanel::JSON::XS qw/decode_json/;
 use Thruk::Utils::Filter ();
-use Thruk::Utils::Log qw/_error _info _debug _trace/;
+use Thruk::Utils::Log;
 
 our $skip_backends = \&_skip_backends;
 
@@ -51,7 +51,7 @@ sub cmd {
     # logging to screen would break json output
     {
         delete $c->app->{'_log'};
-        local $ENV{'THRUK_SRC'} = undef;
+        local $ENV{'THRUK_MODE'} = undef; # TODO: check
         $c->app->init_logging();
     }
     if(scalar @{$opts} == 0) {
@@ -88,11 +88,11 @@ sub _fetch_results {
             }
             elsif($url =~ m/^https?:/mx) {
                 my($code, $result, $res) = Thruk::Utils::CLI::request_url($c, $url, undef, $opt->{'method'}, $opt->{'postdata'}, $opt->{'headers'}, $global_opts->{'insecure'});
-                if($Thruk::Utils::CLI::verbose >= 2) {
-                    _debug("request:");
-                    _debug($res->request->as_string());
-                    _debug("response:");
-                    _debug($res->as_string());
+                if(Thruk->verbose >= 2) {
+                    _debug2("request:");
+                    _debug2($res->request->as_string());
+                    _debug2("response:");
+                    _debug2($res->as_string());
                 }
                 $opt->{'result'} = $result->{'result'};
                 $opt->{'rc'}     = $code == 200 ? 0 : 3;

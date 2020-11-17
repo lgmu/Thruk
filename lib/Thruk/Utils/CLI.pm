@@ -24,9 +24,7 @@ use HTTP::Request 6.12 ();
 use Module::Load qw/load/;
 use Thruk::Utils qw//;
 use Thruk::Utils::IO qw//;
-use Thruk::Utils::Log qw/_error _info _debug _trace/;
-
-$Thruk::Utils::CLI::verbose = 0 unless defined $Thruk::Utils::CLI::verbose;
+use Thruk::Utils::Log;
 
 ##############################################
 
@@ -37,10 +35,7 @@ $Thruk::Utils::CLI::verbose = 0 unless defined $Thruk::Utils::CLI::verbose;
     new([ $options ])
 
  $options = {
-    verbose         => 0-2,         # be more verbose
-    credential      => 'secret',    # secret key when accessing remote instances
-    remoteurl       => 'url',       # url where to access remote instances
-    local           => 0|1,         # local requests only
+    verbose => 0-3, # be more verbose
  }
 
 create CLI tool object
@@ -48,8 +43,6 @@ create CLI tool object
 =cut
 sub new {
     my($class, $options) = @_;
-    $options->{'verbose'} = 1 unless defined $options->{'verbose'};
-    $Thruk::Utils::CLI::verbose = $options->{'verbose'};
     my $self  = {
         'opt' => $options,
     };
@@ -71,18 +64,13 @@ sub new {
 
     # set some env defaults
     ## no critic
-    $ENV{'THRUK_SRC'}        = 'CLI';
+    $ENV{'THRUK_MODE'}       = 'CLI';
     $ENV{'NO_EXTERNAL_JOBS'} = 1;
     $ENV{'REMOTE_USER'}      = $options->{'auth'} if defined $options->{'auth'};
     $ENV{'THRUK_BACKENDS'}   = join(';', @{$options->{'backends'}}) if(defined $options->{'backends'} and scalar @{$options->{'backends'}} > 0);
-    $ENV{'THRUK_VERBOSE'}    = $options->{'verbose'}-1 if($options->{'verbose'} >= 2 && !defined $ENV{'THRUK_VERBOSE'});
+    $ENV{'THRUK_VERBOSE'}    = $ENV{'THRUK_VERBOSE'} // $options->{'verbose'} // 0;
     $ENV{'THRUK_QUIET'}      = 1 if $options->{'quiet'};
     ## use critic
-
-    $options->{'remoteurl_specified'} = 1;
-    unless(defined $options->{'remoteurl'}) {
-        $options->{'remoteurl_specified'} = 0;
-    }
 
     return $self;
 }
@@ -254,13 +242,13 @@ sub request_url {
     }
     elsif($result->{'code'} == 500) {
         my $txt = 'request failed: '.$result->{'code'}." - internal error, please consult your logfiles\n";
-        _debug(Dumper($result)) if $Thruk::Utils::CLI::verbose >= 2;
+        _trace(Dumper($result));
         return($result->{'code'}, $result, $txt) if wantarray;
         return $txt;
     }
     elsif($result->{'code'} != 200) {
         my $txt = 'request failed: '.$result->{'code'}." - ".$result->{'result'}."\n";
-        _debug(Dumper($result)) if $Thruk::Utils::CLI::verbose >= 2;
+        _trace(Dumper($result));
         return($result->{'code'}, $result, $txt) if defined wantarray;
         return $txt;
     }
@@ -295,7 +283,7 @@ sub load_module {
         if($err =~ m/\QCompilation failed in require\E/mx) {
             _error($err);
         } else {
-            _debug($err) if $Thruk::Utils::CLI::verbose >= 1;
+            _debug2($err);
         }
         return;
     }
@@ -327,13 +315,13 @@ sub _read_secret {
     my $secret;
     my $secretfile = $var_path.'/secret.key';
     if(-r $secretfile) {
-        _debug("reading secret file: ".$secretfile) if $Thruk::Utils::CLI::verbose >= 2;
+        _debug2("reading secret file: ".$secretfile);
         $secret = read_file($var_path.'/secret.key');
         chomp($secret);
     } else {
         # don't print error unless in debug mode.
         # will be printed in debians postinst installcron otherwise
-        _debug("reading secret file ".$secretfile." failed: ".$!) if $Thruk::Utils::CLI::verbose >= 2;
+        _debug2("reading secret file ".$secretfile." failed: ".$!);
     }
     return $secret;
 }
@@ -342,101 +330,62 @@ sub _read_secret {
 sub _run {
     my($self) = @_;
 
-    ## no critic
-    my $terminal_attached = -t 0 ? 1 : 0;
-    ## use critic
-    my $log_timestamps = 0;
     my $action = $self->{'opt'}->{'action'} || $self->{'opt'}->{'commandoptions'}->[0] || '';
-    if($ENV{'THRUK_CRON'} || $action =~ m/^(logcache|bp|downtimetask)/mx) {
-        $log_timestamps = 1;
-    }
-
     if($action eq 'bash_complete') {
         require Thruk::Utils::Bash;
         return(Thruk::Utils::Bash::complete());
     }
 
+    # TODO: use logmodes as follows:
+    # info: no timestamps and error prefix, only show info
+    # > info, add timestamps to all
+    my $log_timestamps = 0;
+    if($ENV{'THRUK_CRON'} || $action =~ m/^(logcache|bp|downtimetask)/mx) {
+        $log_timestamps = 1;
+    }
+
     # skip cluster if --local is given on command line
     local $ENV{'THRUK_SKIP_CLUSTER'} = 1 if($self->{'opt'}->{'local'} && !$ENV{'THRUK_CRON'});
 
-    # force some commands to be local
-    if($action =~ m/^(logcache|livecache|bpd|bp|report|plugin|lmd|find|cluster|restart)/mx) {
-        $self->{'opt'}->{'local'} = 1;
-    }
-
-    # force cronjobs to be local
-    if($ENV{'THRUK_CRON'}) {
-        $self->{'opt'}->{'local'} = 1;
-    }
-
-    # some more env variables force local mode
-    if($ENV{'THRUK_NO_COMMANDS'} || $ENV{'THRUK_TEST_NO_AUDIT_LOG'}) {
-        $self->{'opt'}->{'local'} = 1;
-    }
-
     my $c = $self->get_c();
-    my($result, $response);
-
-    # try to read secret file
-    $self->{'opt'}->{'credential'} = $self->_read_secret() unless defined $self->{'opt'}->{'credential'};
-
-    _debug(sprintf("_run(%s)",Thruk::Utils::dump_params($self->{'opt'}))) if $Thruk::Utils::CLI::verbose >= 2;
-    unless($self->{'opt'}->{'local'}) {
-        my $remoteurl = _get_remote_url($c, $self->{'opt'}->{'remoteurl'});
-        _debug("_run(): fetching from ".$remoteurl);
-        ($result,$response) = _request($c, $self->{'opt'}->{'credential'}, $remoteurl, $self->{'opt'});
-        _debug("_run(): fetching done");
-        if(!defined $result && $self->{'opt'}->{'remoteurl_specified'}) {
-            _error("requesting result from ".$remoteurl." failed: "._format_response_error($response));
-            _debug(" -> ".Dumper($response)) if $Thruk::Utils::CLI::verbose >= 2;
-            return 1;
-        }
+    if(!defined $c) {
+        print STDERR "command failed";
+        return 1;
     }
 
+    # initialize backend pool here to safe some memory
+    require Thruk::Backend::Pool;
+    if($action and $action =~ m/livecache/mx) {
+        local $ENV{'THRUK_NO_CONNECTION_POOL'} = 1;
+        Thruk::Backend::Pool::init_backend_thread_pool();
+    } else {
+        Thruk::Backend::Pool::init_backend_thread_pool();
+    }
+
+    _debug("_run(): building local response");
+
+    # catch prints when not attached to a terminal and redirect them to our logger
+    local $| = 1;
     my($capture);
-    unless(defined $result) {
-        # initialize backend pool here to safe some memory
-        require Thruk::Backend::Pool;
-        if($action and $action =~ m/livecache/mx) {
-            local $ENV{'THRUK_NO_CONNECTION_POOL'} = 1;
-            Thruk::Backend::Pool::init_backend_thread_pool();
-        } else {
-            Thruk::Backend::Pool::init_backend_thread_pool();
-        }
-
-        if(!defined $c) {
-            print STDERR "command failed";
-            return 1;
-        }
-
-        if($terminal_attached) {
-            # initialize screen logging
-            $c->app->{'_log'} = 'screen';
-        }
-
-        _debug("_run(): building local response");
-
-        # catch prints when not attached to a terminal and redirect them to our logger
-        local $| = 1;
-        if(!$terminal_attached && $log_timestamps) {
-            my $tmp;
-            ## no critic
-            open($capture, '>', \$tmp) or die("cannot open stdout capture: $!");
-            tie *$capture, 'Thruk::Utils::Log', (*STDOUT);
-            select $capture;
-            ## use critic
-        }
-
-        $result = $self->from_local($c, $self->{'opt'});
-
-        # remove print capture
+    # TODO: check
+    if(!-t STDOUT && $log_timestamps) {
+        my $tmp;
         ## no critic
-        select *STDOUT;
+        open($capture, '>', \$tmp) or die("cannot open stdout capture: $!");
+        tie *$capture, 'Thruk::Utils::Log', (*STDOUT);
+        select $capture;
         ## use critic
-
-        _debug("_run(): building local response done, exit code ".$result->{'rc'});
-        $response = $c->res;
     }
+
+    my $result = $self->from_local($c, $self->{'opt'});
+
+    # remove print capture
+    ## no critic
+    select *STDOUT;
+    ## use critic
+
+    _debug("_run(): building local response done, exit code ".$result->{'rc'});
+    my $response = $c->res;
 
     # no output?
     if(!defined $result->{'output'}) {
@@ -460,48 +409,8 @@ sub _run {
         binmode STDERR;
         print STDERR $result->{'output'};
     }
-    _trace("".$c->stats->report) if defined $c and $Thruk::Utils::CLI::verbose >= 3;
+    _trace("".$c->stats->report) if Thruk->verbose >= 3;
     return $result->{'rc'};
-}
-
-##############################################
-sub _request {
-    my($c, $credential, $url, $options) = @_;
-    _debug("_request(".$url.")") if $Thruk::Utils::CLI::verbose >= 2;
-
-    my $ua = _get_user_agent($c->config);
-    Thruk::UserAgent::disable_verify_hostname_by_url($ua, $url);
-
-    my $response = $ua->post($url, {
-        data => encode_json({
-            credential => $credential,
-            options    => $options,
-        }),
-    });
-    if($Thruk::Utils::CLI::verbose >= 2) {
-        _debug(" -> request:");
-        _debug(Thruk::Utils::clean_credentials_from_string($response->request->as_string()));
-    }
-    if($response->is_success) {
-        _debug(" -> request was successful") if $Thruk::Utils::CLI::verbose >= 2;
-        my $data_str = $response->decoded_content || $response->content;
-        my $data;
-        eval {
-            $data = decode_json($data_str);
-        };
-        if($@) {
-            _error(" -> decode failed: ".Dumper($@, $data_str, $response));
-            return(undef, $response);
-        }
-        _debug("   -> ".Thruk::Utils::clean_credentials_from_string(Dumper($data)))     if $Thruk::Utils::CLI::verbose >= 2;
-        return($data, $response);
-    }
-
-    if($Thruk::Utils::CLI::verbose >= 2) {
-        _debug(" -> request failed:");
-        _debug(Thruk::Utils::clean_credentials_from_string($response->as_string()));
-    }
-    return(undef, $response);
 }
 
 ##############################################
@@ -510,7 +419,7 @@ sub _external_request {
     if(!defined $method) {
         $method = $postdata ? "POST" : "GET";
     }
-    _debug(sprintf("_external_request(%s, %s)", $url, $method)) if $Thruk::Utils::CLI::verbose >= 2;
+    _debug(sprintf("_external_request(%s, %s)", $url, $method));
     my $ua = _get_user_agent($c->config);
     if($insecure) {
         Thruk::UserAgent::disable_verify_hostname($ua);
@@ -543,10 +452,10 @@ sub _external_request {
 
     my $response = $ua->request($request);
     if($response->is_success) {
-        _debug(" -> success") if $Thruk::Utils::CLI::verbose >= 2;
+        _debug2(" -> success");
         return($response);
     }
-    if($Thruk::Utils::CLI::verbose >= 2) {
+    if(Thruk->verbose >= 2) {
         _debug(" -> external request failed:");
         _debug($response->request->as_string());
         _debug(" -> response:");
@@ -557,7 +466,7 @@ sub _external_request {
 
 ##############################################
 sub _dummy_c {
-    _debug("_dummy_c()") if $Thruk::Utils::CLI::verbose >= 2;
+    _debug2("_dummy_c()");
     my($c) = _internal_request('/thruk/cgi-bin/remote.cgi');
     return($c);
 }
@@ -567,7 +476,7 @@ sub _internal_request {
     my($url, $method, $postdata, $user) = @_;
     $method = 'GET' unless $method;
 
-    _debug(sprintf("_internal_request('%s', '%s')", $url, $method)) if $Thruk::Utils::CLI::verbose >= 2;
+    _debug(sprintf("_internal_request('%s', '%s')", $url, $method));
     delete local $ENV{'PLACK_TEST_EXTERNALSERVER_URI'} if defined $ENV{'PLACK_TEST_EXTERNALSERVER_URI'};
     our $app;
     if(!$app) {
@@ -583,7 +492,7 @@ sub _internal_request {
     my $res    = $app->request(HTTP::Request->new($method, $url, [], $postdata));
     my $c      = $Thruk::Request::c;
     my $failed = ( $res->code == 200 ? 0 : 1 );
-    _debug("_internal_request() done") if $Thruk::Utils::CLI::verbose >= 2;
+    _debug("_internal_request() done");
     return($c, $failed, $res);
 }
 
@@ -598,7 +507,7 @@ main entry point for cli commands from the terminal
 =cut
 sub from_local {
     my($self, $c, $options) = @_;
-    _debug("from_local()") if $Thruk::Utils::CLI::verbose >= 2;
+    _debug2("from_local()");
     ## no critic
     $ENV{'NO_EXTERNAL_JOBS'} = 1;
     ## use critic
@@ -642,8 +551,8 @@ sub from_fcgi {
     $data_str = encode_utf8($data_str);
     my $data  = decode_json($data_str);
     confess('corrupt data?') unless ref $data eq 'HASH';
-    $Thruk::Utils::CLI::verbose = $data->{'options'}->{'verbose'} if defined $data->{'options'}->{'verbose'};
-    local $ENV{'THRUK_SRC'}          = 'CLI';
+    local $ENV{'THRUK_VERBOSE'}      = $data->{'options'}->{'verbose'} if defined $data->{'options'}->{'verbose'};
+    local $ENV{'THRUK_MODE'}         = 'CLI';
     local $ENV{'THRUK_CLI_SRC'}      = 'FCGI';
     local $ENV{'THRUK_SKIP_CLUSTER'} = 1;
 
@@ -793,7 +702,7 @@ sub _run_command_action {
         for my $mod (@mods) {
             $action = $mod;
             my $modname = "Thruk::Utils::CLI::".ucfirst($mod);
-            _debug("trying to load module: ".$modname) if $Thruk::Utils::CLI::verbose >= 1;
+            _debug2("trying to load module: ".$modname);
             undef $err;
             eval {
                 load $modname;
@@ -802,7 +711,7 @@ sub _run_command_action {
             last unless $err;
 
             if($err =~ m|^Can't\ locate\ .*\ in\ \@INC|mx && $err !~ m/Compilation\ failed\ in\ require\ at/mx) {
-                _debug($@) if $Thruk::Utils::CLI::verbose >= 1;
+                _debug($@);
                 $data->{'output'} = "FAILED - no such command: ".$action.".\n".
                                     "Enabled cli plugins: ".join(", ", @{Thruk::Utils::get_cli_modules()})."\n";
             } elsif($err) {
@@ -992,11 +901,11 @@ sub _cmd_configtool {
             my $cmd = $c->config->{'Thruk::Plugin::ConfigTool'}->{'pre_obj_save_cmd'}." pre '".$filesroot."' 2>&1";
             my($rc, $out) = Thruk::Utils::IO::cmd($c, $cmd);
             if($rc != 0) {
-                $c->log->info('pre save hook: '.$rc);
-                $c->log->info('pre save hook: '.$out);
+                _info('pre save hook: '.$rc);
+                _info('pre save hook: '.$out);
                 return("Save canceled by pre save hook!\n".$out, 1);
             }
-            $c->log->debug('pre save hook: '.$out);
+            _debug('pre save hook: '.$out);
         }
 
         my $changed = $opt->{'args'}->{'args'}->{'changed'};
@@ -1023,7 +932,7 @@ sub _cmd_configtool {
             }
             # create log message
             if($saved && !$ENV{'THRUK_TEST_NO_STDOUT_LOG'}) {
-                $c->log->info(sprintf("[config][%s][%s][ext] %s file '%s'",
+                _info(sprintf("[config][%s][%s][ext] %s file '%s'",
                                             $c->{'db'}->get_peer_by_key($c->stash->{'param_backend'})->{'name'},
                                             $c->stash->{'remote_user'},
                                             $saved,
@@ -1039,7 +948,7 @@ sub _cmd_configtool {
                 unlink($f);
 
                 # create log message
-                $c->log->info(sprintf("[config][%s][%s][ext] deleted file '%s'",
+                _info(sprintf("[config][%s][%s][ext] deleted file '%s'",
                                             $c->{'db'}->get_peer_by_key($c->stash->{'param_backend'})->{'name'},
                                             $c->stash->{'remote_user'},
                                             $f,
@@ -1330,7 +1239,7 @@ sub _authorize_raw_query {
         }
         elsif($q =~ m/^COMMAND/mx) {
             if($c->check_user_roles("authorized_for_read_only")) {
-                $c->log->warn(sprintf("rejected query command for readonly user %s: %s", $c->user->{'username'}, $q));
+                _warn(sprintf("rejected query command for readonly user %s: %s", $c->user->{'username'}, $q));
                 return("permission denied - sending commands requires admin permissions.");
             }
             if($c->check_user_roles(["authorized_for_all_service_commands", "authorized_for_all_host_commands", "authorized_for_system_commands"])) {
@@ -1344,11 +1253,11 @@ sub _authorize_raw_query {
                 next if _authorize_command($c, $cmd_name, $cmd_args);
             }
 
-            $c->log->warn(sprintf("rejected query command for user %s: %s", $c->user->{'username'}, $q));
+            _warn(sprintf("rejected query command for user %s: %s", $c->user->{'username'}, $q));
             return("permission denied - sending this command requires admin permissions.");
         }
 
-        $c->log->warn(sprintf("rejected unknown query for user %s: %s", $c->user->{'username'}, $q));
+        _warn(sprintf("rejected unknown query for user %s: %s", $c->user->{'username'}, $q));
         return("permission denied - unnown query.");
     }
 
@@ -1427,33 +1336,6 @@ sub _authorize_command {
         }
     }
     return;
-}
-
-##############################################
-sub _get_remote_url {
-    my($c, $remoteurl) = @_;
-
-    unless(defined $remoteurl) {
-        if(defined $ENV{'STARTURL'}) {
-            $remoteurl = $ENV{'STARTURL'};
-        }
-        elsif(defined $ENV{'REMOTEURL'}) {
-            $remoteurl = $ENV{'REMOTEURL'};
-        }
-        elsif(defined $ENV{'OMD_SITE'}) {
-            if($c->config->{'omd_local_site_url'}) {
-                $remoteurl = $c->config->{'omd_local_site_url'}.'/thruk/cgi-bin/remote.cgi';
-            } else {
-                $remoteurl = 'http://localhost/'.$ENV{'OMD_SITE'}.'/thruk/cgi-bin/remote.cgi';
-            }
-        }
-        else {
-            $remoteurl = 'http://localhost/thruk/cgi-bin/remote.cgi';
-        }
-    }
-    $remoteurl =~ s|/thruk/*$||mx;
-    $remoteurl = $remoteurl.'/thruk/cgi-bin/remote.cgi' if $remoteurl !~ m/remote\.cgi$/mx;
-    return($remoteurl);
 }
 
 ##############################################
