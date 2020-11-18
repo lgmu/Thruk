@@ -49,6 +49,7 @@ my $base_defaults = {
     'version'                               => $VERSION,
     'branch'                                => $branch,
     'released'                              => 'October 27, 2020',
+    'hostname'                              => &hostname(),
     'compression_format'                    => 'gzip',
     'ENCODING'                              => 'utf-8',
     'image_path'                            => $project_root.'/root/thruk/images',
@@ -715,8 +716,7 @@ sub _load_config_files {
                     }
                     if($ext ne 'conf' && $ext ne 'cfg') {
                         # only read if the extension matches the hostname
-                        our $hostname;
-                        chomp($hostname = Thruk::Utils::IO::cmd("hostname")) unless $hostname;
+                        my $hostname = &hostname;
                         if($tmpfile !~ m/\Q$hostname\E$/mx) {
                             _debug2("skipped config file: ".$tmpfile.", file does not end with our hostname '$hostname'");
                             next;
@@ -808,23 +808,6 @@ sub get_toolkit_config {
     }
 
     return($view_tt_settings);
-}
-
-##############################################
-
-=head2 get_thruk_version
-
-  get_thruk_version($c, [$config])
-
-return thruk version string
-
-=cut
-
-sub get_thruk_version {
-    if($branch) {
-        return($VERSION.'-'.$branch);
-    }
-    return($VERSION);
 }
 
 ##############################################
@@ -1456,17 +1439,53 @@ sub _get_orig_cmd_line {
     return($^X, @cmd);
 }
 
+##############################################
+
+=head2 hostname
+
+  hostname()
+
+return system hostname
+
+=cut
+
+sub hostname {
+    our $hostname;
+    return($hostname) if $hostname;
+    chomp($hostname = Thruk::Utils::IO::cmd("hostname"));
+    return($hostname);
+}
+
+##############################################
+
+=head2 get_thruk_version
+
+  get_thruk_version()
+
+return full thruk version string, ex.: 2.38-2~feature_branch.45a4ceb
+
+=cut
+
+sub get_thruk_version {
+    if($branch) {
+        return($VERSION.'-'.$branch);
+    }
+    return($VERSION);
+}
+
 ########################################
 
 =head2 version
 
   version()
 
-return version string
+return version string, ex.: 2.38-2
 
 =cut
 sub version {
     return(sprintf("%s-%s", $VERSION, $filebranch));
 }
+
+########################################
 
 1;

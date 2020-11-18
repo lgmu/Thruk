@@ -142,9 +142,9 @@ sub _build_app {
     #&timing_breakpoint('startup() cgi.cfg parsed');
 
     $self->set_timezone();
-    $self->_set_ssi();
-    $self->_setup_pidfile();
-    $self->_setup_cluster();
+    &_set_ssi();
+    &_setup_pidfile();
+    &_setup_cluster();
 
     ###################################################
     # create backends
@@ -539,7 +539,6 @@ sub _check_exit_reason {
 # save pid
 my $pidfile;
 sub _setup_pidfile {
-    my($self) = @_;
     $pidfile  = Thruk->config->{'tmp_path'}.'/thruk.pid';
     if(Thruk->mode eq 'FASTCGI') {
         -s $pidfile || unlink(Thruk->config->{'tmp_path'}.'/thruk.cache');
@@ -656,7 +655,7 @@ sub _clean_exit {
 sub set_timezone {
     my($self, $timezone) = @_;
     my $config = Thruk->config;
-    $config->{'_server_timezone'} = $self->_detect_timezone() unless $config->{'_server_timezone'};
+    $config->{'_server_timezone'} = &_detect_timezone() unless $config->{'_server_timezone'};
 
     if(!defined $timezone) {
         $timezone = $config->{'server_timezone'} || $config->{'use_timezone'} || $config->{'_server_timezone'};
@@ -673,21 +672,17 @@ sub set_timezone {
 ###################################################
 # create cluster files
 sub _setup_cluster {
-    my($self) = @_;
-    chomp(my $hostname = Thruk::Utils::IO::cmd("hostname"));
     my $config = Thruk->config;
     require Thruk::Utils::Crypt;
-    $config->{'hostname'} = $hostname unless $config->{'hostname'};
-    $Thruk::HOSTNAME            = $config->{'hostname'};
-    $Thruk::NODE_ID_HUMAN       = $config->{'hostname'}."-".$config->{'home'}."-".abs_path($ENV{'THRUK_CONFIG'} || '.');
-    $Thruk::NODE_ID             = Thruk::Utils::Crypt::hexdigest($Thruk::NODE_ID_HUMAN);
+    $Thruk::HOSTNAME      = $config->{'hostname'};
+    $Thruk::NODE_ID_HUMAN = $config->{'hostname'}."-".$config->{'home'}."-".abs_path($ENV{'THRUK_CONFIG'} || '.');
+    $Thruk::NODE_ID       = Thruk::Utils::Crypt::hexdigest($Thruk::NODE_ID_HUMAN);
     return;
 }
 
 ###################################################
 # set installed server side includes
 sub _set_ssi {
-    my($self) = @_;
     my $config  = Thruk->config;
     my $ssi_dir = $config->{'ssi_path'};
     my (%ssi, $dh);
@@ -944,8 +939,6 @@ sub finalize_request {
 # try to detect current timezone
 # Locations like Europe/Berlin are prefered over CEST
 sub _detect_timezone {
-    my($self) = @_;
-
     if($ENV{'TZ'}) {
         _debug(sprintf("server timezone: %s (from ENV)", $ENV{'TZ'})) if Thruk->verbose;
         return($ENV{'TZ'});
