@@ -1419,7 +1419,7 @@ sub _update_logcache_compact {
             last;
         }
 
-        _debugs("compacting ".(scalar localtime $current). ": ");
+        _infos("compacting ".(scalar localtime $current). ": ");
         my $next = Thruk::Utils::DateTime::start_of_day($current + 26*86400); # add 2 extra hours to compensate timshifts
 
         my $sth = $dbh->prepare("SELECT log_id, class, type, state, state_type, host_id, service_id, message FROM `".$prefix."_log` WHERE time >= $current and time < $next");
@@ -1434,7 +1434,7 @@ sub _update_logcache_compact {
                 $dbh->commit || confess $dbh->errstr;
                 $log_clear += scalar @delete;
                 @delete = ();
-                _debugc('.');
+                _infoc('.');
             }
             if(_is_compactable($l, $alerts)) {
                 push @delete, $l->{'log_id'};
@@ -1510,7 +1510,7 @@ sub _update_logcache_auth {
 
     # update hosts
     my($hosts)    = $peer->{'class'}->get_hosts(columns => [qw/name contacts/]);
-    _debugs("hosts");
+    _debugs("hosts: ");
     my $stm = "INSERT INTO `".$prefix."_contact_host_rel` (contact_id, host_id) VALUES";
     $dbh->do("TRUNCATE TABLE `".$prefix."_contact_host_rel`");
     my $count = 0;
@@ -1525,10 +1525,10 @@ sub _update_logcache_auth {
         $count++;
         _debugc(".") if $count%100 == 0;
     }
-    _debug("\n");
+    _debug("done");
 
     # update services
-    _debugs("services");
+    _debugs("services: ");
     $dbh->do("TRUNCATE TABLE `".$prefix."_contact_service_rel`");
     $stm = "INSERT INTO `".$prefix."_contact_service_rel` (contact_id, service_id) VALUES";
     my($services) = $peer->{'class'}->get_services(columns => [qw/host_name description contacts/]);
@@ -1546,7 +1546,7 @@ sub _update_logcache_auth {
         _debugc(".") if $count%1000 == 0;
     }
 
-    _debug("\n");
+    _debug("done");
 
     $dbh->commit || confess $dbh->errstr;
 
@@ -1566,10 +1566,10 @@ sub _update_logcache_optimize {
     my $start = time();
 
     eval {
-        _debugs("update logs table order...");
+        _infos("update logs table order...");
         $dbh->do("ALTER TABLE `".$prefix."_log` ORDER BY time");
         $dbh->do("INSERT INTO `".$prefix."_status` (status_id,name,value) VALUES(3,'last_reorder',UNIX_TIMESTAMP()) ON DUPLICATE KEY UPDATE value=UNIX_TIMESTAMP()");
-        _debug("done");
+        _info("done");
     };
     _warn($@) if $@;
 
@@ -1582,12 +1582,12 @@ sub _update_logcache_optimize {
         # repair / optimize tables
         _debug("optimizing / repairing tables");
         for my $table (@Thruk::Backend::Provider::Mysql::tables) {
-            _debugs($table.'...');
+            _infos($table.'...');
             $dbh->do("REPAIR TABLE `".$prefix."_".$table.'`');
             $dbh->do("OPTIMIZE TABLE `".$prefix."_".$table.'`');
             $dbh->do("ANALYZE TABLE `".$prefix."_".$table.'`');
             $dbh->do("CHECK TABLE `".$prefix."_".$table.'`');
-            _debug("OK");
+            _info("OK");
         }
     }
 
@@ -1866,8 +1866,8 @@ sub _import_peer_logfiles {
         die("something went wrong, cannot get start from logfiles (".(defined $start ? $start : "undef").")\nIf this is an Icinga2 please have a look at: https://thruk.org/documentation/logfile-cache.html#icinga-2 for a workaround.\n");
     }
 
-    _debug("importing from ".(scalar localtime $start));
-    _debug("until latest entry in logfile: ".(scalar localtime $end)) if $end;
+    _info("importing from ".(scalar localtime $start));
+    _info("until latest entry in logfile: ".(scalar localtime $end)) if $end;
     my $time = $start;
     $end = time() unless $end;
 
@@ -1891,7 +1891,7 @@ sub _import_peer_logfiles {
         my $stime = scalar localtime $time;
         $c->stats->profile(begin => $stime);
         my $duplicate_lookup = {};
-        _debugs(scalar localtime $time);
+        _infos(scalar localtime $time);
 
         my $today = POSIX::strftime("%Y-%m-%d", localtime($time));
         if($last_day ne $today) {
@@ -1925,7 +1925,7 @@ sub _import_peer_logfiles {
                 $duplicate_lookup = $self->_fill_lookup_logs($prefix,$time,($time+$blocksize));
                 #&timing_breakpoint('_fill_lookup_logs_logs done');
             }
-            _debugc(":");
+            _infoc(":");
         };
         if($@) {
             my $err = $@;
@@ -1994,7 +1994,7 @@ sub _import_logcache_from_file {
     my $stm = "INSERT INTO `".$prefix."_log` (time,class,type,state,state_type,contact_id,host_id,service_id,message) VALUES";
 
     for my $f (@{$files}) {
-        _debugs($f);
+        _infos($f);
         my $duplicate_lookup  = {};
         my $last_duplicate_ts = 0;
         my @values;
@@ -2028,7 +2028,7 @@ sub _import_logcache_from_file {
                 $self->_safe_insert($dbh, $stm, \@values);
                 $self->_safe_insert_stash($dbh, $prefix, $foreign_key_stash);
                 @values = ();
-                _debugc('.');
+                _infoc('.');
             }
 
             if($import_compacted && _is_compactable($l, $alertstore)) {
@@ -2118,7 +2118,7 @@ sub _insert_logs {
         next if $import_filter && $l->{'message'} =~ $import_filter;
 
         $log_count++;
-        _debugc('.') if $log_count % $dots_each == 0;
+        _infoc('.') if $log_count % $dots_each == 0;
 
         my($host, $svc, $contact) = _fix_import_log($l, $host_lookup, $service_lookup, $contact_lookup, $dbh, $prefix, $auto_increments, $foreign_key_stash);
 

@@ -75,7 +75,7 @@ sub _infos {
 ##############################################
 # continue info entry, still do not add newline and simply append given text
 sub _infoc {
-    return _log('DEBUG', \@_, { append => 1 });
+    return _log('INFO', \@_, { append => 1 });
 }
 
 ##############################################
@@ -134,9 +134,10 @@ sub _log {
             $layouts->{'original'} = $appender->layout() unless $layouts->{'original'};
             $appender->layout($layouts->{'no_newline'});
         }
+        $last_was_plain = 1;
         $appender_changed = 1;
     }
-    if($options->{'append'}) {
+    elsif($options->{'append'}) {
         # skip newline and timestamp
         my $appenders = Log::Log4perl::appenders();
         for my $appender (values %{$appenders}) {
@@ -248,6 +249,13 @@ sub _audit_log {
 }
 
 ##############################################
+
+=head2 wrap_stdout2log
+
+    wrap stdout to info logger. everything printed to stdout will be logged
+    with info level to stderr.
+
+=cut
 sub wrap_stdout2log {
     my($capture, $tmp);
     ## no critic
@@ -260,6 +268,12 @@ sub wrap_stdout2log {
 }
 
 ##############################################
+
+=head2 wrap_stdout2log_stop
+
+    stop wrapping stdout
+
+=cut
 sub wrap_stdout2log_stop {
     ## no critic
     select *STDOUT;
@@ -318,7 +332,6 @@ sub PRINT {
 returns nothing
 
 =cut
-
 sub init_logging {
     require Log::Log4perl;
 
@@ -463,7 +476,7 @@ sub _striped_caller_information {
 ##############################################
 sub _color_by_level {
     my($layout, $message, $category, $priority) = @_;
-    # TODO: add option
+    return("") if $ENV{'THRUK_NO_COLOR'};
     if($priority eq 'DEBUG') { return(Term::ANSIColor::color("FAINT")); }
     if($priority eq 'ERROR') { return(Term::ANSIColor::color("BRIGHT_RED")); }
     if($priority eq 'WARN')  { return(Term::ANSIColor::color("BRIGHT_YELLOW")); }
