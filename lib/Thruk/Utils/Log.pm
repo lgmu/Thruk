@@ -144,6 +144,7 @@ sub _log {
         $appender_changed = 1;
         $last_was_plain  = undef;
     }
+    local $Log::Log4perl::caller_depth = $Log::Log4perl::caller_depth+2;
     for my $l (split/\n/mx, $line) {
         if(   $lvl eq 'ERROR')   { $logger->error($l); }
         elsif($lvl eq 'WARNING') { $logger->warn($l);  }
@@ -287,14 +288,14 @@ sub init_logging {
     delete $config->{'log4perl_logfile_in_use'};
 
     my($log4perl_conf);
-    if(Thruk->mode ne 'CLI') {
+    if(Thruk->mode eq 'FASTCGI' || $ENV{'THRUK_JOB_DIR'}) {
         if(defined $config->{'log4perl_conf'} && ! -s $config->{'log4perl_conf'} ) {
             die("\n\n*****\nfailed to load log4perl config: ".$config->{'log4perl_conf'}.": ".$!."\n*****\n\n");
         }
         $log4perl_conf = $config->{'log4perl_conf'} || ($config->{'home'}//Thruk::Config::home()).'/log4perl.conf';
     }
 
-    if(Thruk->mode eq 'FASTCGI' && defined $log4perl_conf && -s $log4perl_conf) {
+    if(defined $log4perl_conf && -s $log4perl_conf) {
         $logger = _get_file_logger($log4perl_conf, $config);
     } else {
         $logger = _get_screen_logger($config);

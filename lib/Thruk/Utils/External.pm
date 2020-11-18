@@ -733,7 +733,6 @@ sub do_child_stuff {
     $c->stats->profile(begin => 'External Job: '.$id) if $id;
     $c->stats->profile(comment => sprintf('time: %s - host: %s - pid: %s', (scalar localtime), $c->config->{'hostname'}, $$));
 
-    delete $ENV{'THRUK_VERBOSE'};
     delete $ENV{'THRUK_PERFORMANCE_DEBUG'};
 
     Thruk::restore_signal_handler();
@@ -779,6 +778,7 @@ sub do_child_stuff {
 
     # logging must be reset after closing the filehandles
     Thruk::Utils::Log::reset_logging();
+    _debug2("child started with pid ".$$);
 
     $c->stats->enable(1);
     $c->config->{'slow_page_log_threshold'} = 0;
@@ -859,6 +859,8 @@ sub do_parent_stuff {
         print $fh "\n";
         Thruk::Utils::IO::close($fh, $dir."/show_output");
     }
+
+    _debug2(($conf->{'background'} ? "background" : "")." job $id started with pid ".$pid);
 
     $c->stash->{'job_id'} = $id;
     if(!$conf->{'background'}) {
