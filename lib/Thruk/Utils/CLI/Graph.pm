@@ -140,7 +140,11 @@ sub cmd {
             follow  => 1,
     });
     if(!$img) {
-        _info("could not export any image, check if the host/service has a valid graph url.");
+        _info(sprintf("could not export any image, check if the %s %s%s has a valid graph url (action_url or notes_url).",
+                ($opt->{'service'} && $opt->{'service'} ne '_HOST_') ? 'service' : 'host',
+                $opt->{'host'},
+                ($opt->{'service'} && $opt->{'service'} ne '_HOST_') ? ' - '.$opt->{'service'} : '',
+        ));
         return("", 1);
     }
     if($format eq 'base64') {

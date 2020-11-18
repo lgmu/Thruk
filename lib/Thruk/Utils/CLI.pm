@@ -336,11 +336,8 @@ sub _run {
         return(Thruk::Utils::Bash::complete());
     }
 
-    # TODO: use logmodes as follows:
-    # info: no timestamps and error prefix, only show info
-    # > info, add timestamps to all
     my $log_timestamps = 0;
-    if($ENV{'THRUK_CRON'} || $action =~ m/^(logcache|bp|downtimetask)/mx) {
+    if($ENV{'THRUK_CRON'} || Thruk->verbose) {
         $log_timestamps = 1;
     }
 
@@ -349,7 +346,7 @@ sub _run {
 
     my $c = $self->get_c();
     if(!defined $c) {
-        print STDERR "command failed";
+        _error("command failed, could not create context");
         return 1;
     }
 
@@ -366,23 +363,12 @@ sub _run {
 
     # catch prints when not attached to a terminal and redirect them to our logger
     local $| = 1;
-    my($capture);
-    # TODO: check
-    if(!-t STDOUT && $log_timestamps) {
-        my $tmp;
-        ## no critic
-        open($capture, '>', \$tmp) or die("cannot open stdout capture: $!");
-        tie *$capture, 'Thruk::Utils::Log', (*STDOUT);
-        select $capture;
-        ## use critic
-    }
+    Thruk::Utils::Log::wrap_stdout2log() if $log_timestamps;
 
     my $result = $self->from_local($c, $self->{'opt'});
 
-    # remove print capture
-    ## no critic
-    select *STDOUT;
-    ## use critic
+    # remove print wrapper
+    Thruk::Utils::Log::wrap_stdout2log_stop();
 
     _debug("_run(): building local response done, exit code ".$result->{'rc'});
     my $response = $c->res;
@@ -398,11 +384,7 @@ sub _run {
         $result->{'output'} = encode_utf8(Thruk::Utils::decode_any($result->{'output'}));
     }
 
-    # with output
-    if($capture) {
-        print $capture $result->{'output'};
-    }
-    elsif($result->{'rc'} == 0 or $result->{'all_stdout'}) {
+    if($result->{'rc'} == 0 or $result->{'all_stdout'}) {
         binmode STDOUT;
         print STDOUT $result->{'output'} unless $self->{'opt'}->{'quiet'};
     } else {

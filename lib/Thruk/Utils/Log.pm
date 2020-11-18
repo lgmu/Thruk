@@ -22,7 +22,7 @@ use Thruk;
 use Thruk::Utils::IO;
 
 use Exporter 'import';
-our @EXPORT_OK = qw(_fatal _error _warn _info _debug _debug2 _debugs _debugc _trace _audit_log);
+our @EXPORT_OK = qw(_fatal _error _warn _info _infos _infoc _debug _debug2 _debugs _debugc _trace _audit_log);
 our %EXPORT_TAGS = ( all => \@EXPORT_OK );
 
 ##############################################
@@ -64,6 +64,18 @@ sub _warn {
 ##############################################
 sub _info {
     return _log('INFO', \@_);
+}
+
+##############################################
+# start info entry, but do not add newline
+sub _infos {
+    return _log('INFO', \@_, { newline => 0 });
+}
+
+##############################################
+# continue info entry, still do not add newline and simply append given text
+sub _infoc {
+    return _log('DEBUG', \@_, { append => 1 });
 }
 
 ##############################################
@@ -236,6 +248,26 @@ sub _audit_log {
 }
 
 ##############################################
+sub wrap_stdout2log {
+    my($capture, $tmp);
+    ## no critic
+    open($capture, '>', \$tmp) or die("cannot open stdout capture: $!");
+    tie *$capture, 'Thruk::Utils::Log', (*STDOUT);
+    select $capture;
+    $|=1;
+    ## use critic
+    return($capture);
+}
+
+##############################################
+sub wrap_stdout2log_stop {
+    ## no critic
+    select *STDOUT;
+    ## use critic
+    return;
+}
+
+##############################################
 sub TIEHANDLE {
     my($class, $fh) = @_;
     my $self = {
@@ -253,20 +285,26 @@ sub BINMODE {
 }
 
 ##############################################
+sub PRINTF {
+    my($self, $fmt, @data) = @_;
+    return($self->PRINT(sprintf($fmt, @data)));
+}
+
+##############################################
 sub PRINT {
     my($self, @data) = @_;
-    my $fh = $self->{'fh'};
 
-# TODO: check
-    if($self->{'newline'}) {
-        print $fh "[".(scalar localtime())."][INFO][".$Thruk::HOSTNAME."] ", @data;
-    } else {
-        print $fh @data;
+    my $last_newline = $self->{'newline'};
+    $self->{'newline'} = (join("", @data) =~ m/\n$/mx) ? 1 : 0;
+
+    if(!$last_newline && !$self->{'newline'}) {
+        _infoc(@data);
     }
-
-    $self->{'newline'} = 1;
-    if(join("", @data) !~ m/\n$/mx) {
-        $self->{'newline'} = 0;
+    elsif(!$self->{'newline'}) {
+        _infos(@data);
+    }
+    else {
+        _info(@data);
     }
     return;
 }
@@ -288,7 +326,7 @@ sub init_logging {
     delete $config->{'log4perl_logfile_in_use'};
 
     my($log4perl_conf);
-    if(Thruk->mode eq 'FASTCGI' || $ENV{'THRUK_JOB_DIR'}) {
+    if(Thruk->mode eq 'FASTCGI' || $ENV{'THRUK_JOB_DIR'} || $ENV{'THRUK_CRON'}) {
         if(defined $config->{'log4perl_conf'} && ! -s $config->{'log4perl_conf'} ) {
             die("\n\n*****\nfailed to load log4perl config: ".$config->{'log4perl_conf'}.": ".$!."\n*****\n\n");
         }
@@ -354,6 +392,12 @@ sub _get_screen_logger {
         $post = Term::ANSIColor::color("reset");
         Log::Log4perl::Layout::PatternLayout::add_global_cspec('Y', \&_color_by_level);
     }
+
+    Log::Log4perl::Layout::PatternLayout::add_global_cspec('Q', \&_priority_error_warn_only);
+    if(!Thruk->verbose || Thruk->quiet) {
+        $format = '%Q%m{chomp}';
+    }
+
     $layouts->{'no_newline'} = Log::Log4perl::Layout::PatternLayout->new($pre.$format.$post);
     $layouts->{'plain'}      = Log::Log4perl::Layout::PatternLayout->new($pre.'%m{chomp}'.$post);
     $layouts->{'plain_nl'}   = Log::Log4perl::Layout::PatternLayout->new($pre.'%m{chomp}%n'.$post);
@@ -423,6 +467,14 @@ sub _color_by_level {
     if($priority eq 'DEBUG') { return(Term::ANSIColor::color("FAINT")); }
     if($priority eq 'ERROR') { return(Term::ANSIColor::color("BRIGHT_RED")); }
     if($priority eq 'WARN')  { return(Term::ANSIColor::color("BRIGHT_YELLOW")); }
+    return("");
+}
+
+##############################################
+sub _priority_error_warn_only {
+    my($layout, $message, $category, $priority) = @_;
+    if($priority eq 'ERROR') { return("[".$priority."] "); }
+    if($priority eq 'WARN')  { return("[".$priority."] "); }
     return("");
 }
 
