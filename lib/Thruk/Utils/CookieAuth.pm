@@ -327,7 +327,6 @@ sub store_session {
     $data->{'hashed_key'}  = $hashed_key;
 
     if(defined $Thruk::Request::c) {
-        my $c = $Thruk::Request::c;
         _audit_log("session", "session created", $data->{'username'}, $hashed_key, 0);
     }
 

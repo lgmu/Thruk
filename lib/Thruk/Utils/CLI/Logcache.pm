@@ -229,7 +229,7 @@ sub cmd {
             ($rc, $msg) = (1, 'ERROR');
         }
 
-        my $details = join("\n", @{$errors})."\n";
+        my $details = scalar @{$errors} > 0 ? join("\n", @{$errors})."\n" : "";
         if($mode eq 'drop') {
             return(sprintf("%s - droped logcache for %i site%s in %.2fs\n%s",
                            $msg,

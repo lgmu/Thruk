@@ -23,7 +23,6 @@ use File::Slurp qw/read_file/;
 use File::Copy qw/move copy/;
 use Cwd qw/abs_path/;
 use Time::HiRes qw/sleep/;
-use Thruk ();
 use Thruk::Utils::Log qw/:all/;
 #use Thruk::Timer qw/timing_breakpoint/;
 
@@ -147,6 +146,7 @@ sub ensure_permissions {
     my @stat = stat($path);
     my $cur  = sprintf "%04o", S_IMODE($stat[2]);
 
+    require Thruk;
     my $config = Thruk->config;
     # set modes
     if($mode eq 'file') {
@@ -361,6 +361,7 @@ sub json_store {
     print $fh2 ($write_out || $json->encode($data)) or confess('cannot write file '.$tmpfile.': '.$!);
     Thruk::Utils::IO::close($fh2, $tmpfile) or confess("cannot close file ".$tmpfile.": ".$!);
 
+    require Thruk;
     my $config = Thruk->config;
     if($config->{'thruk_author'}) {
         eval {

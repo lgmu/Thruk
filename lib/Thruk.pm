@@ -14,9 +14,12 @@ use strict;
 use warnings;
 use Cwd qw/abs_path/;
 use Time::HiRes;
-use Thruk::Utils::Log qw/:all/;
-use Thruk::Utils::Crypt ();
-use Thruk::Utils::IO ();
+use Carp qw/confess longmess/;  $Carp::MaxArgLen = 500;
+use File::Slurp qw(read_file);
+use Module::Load qw/load/;
+use Data::Dumper qw/Dumper/;    $Data::Dumper::Sortkeys = 1;
+use Plack::Util ();
+use POSIX ();
 
 use 5.008000;
 
@@ -42,18 +45,13 @@ BEGIN {
     $tt_profiling = 1 if $ENV{'THRUK_PERFORMANCE_DEBUG'};
 }
 
-use Carp qw/confess longmess/;
-$Carp::MaxArgLen = 500;
-use File::Slurp qw(read_file);
-use Module::Load qw/load/;
-use Data::Dumper qw/Dumper/;
-use Plack::Util ();
-use POSIX ();
+use Thruk::Base qw/:all/;
+use Thruk::Config ();
 use Thruk::Constants ':add_defaults';
+use Thruk::Utils::Log qw/:all/;
+use Thruk::Utils::IO ();
 
 ###################################################
-$Data::Dumper::Sortkeys = 1;
-our $config;
 our $cluster;
 our $COUNT = 0;
 our $thruk;
@@ -70,14 +68,13 @@ returns the psgi code ref
 sub startup {
     my($class) = @_;
 
-    if(Thruk->mode ne 'TEST') {
+    if(mode() ne 'TEST') {
         require Thruk::Backend::Pool;
         Thruk::Backend::Pool::init_backend_thread_pool();
     }
 
     require Thruk::Context;
     require Thruk::Utils;
-    require Thruk::Utils::IO;
     require Thruk::Utils::Auth;
     require Thruk::Utils::External;
     require Thruk::Utils::LMD;
@@ -94,7 +91,7 @@ sub startup {
         require  Plack::Middleware::Static;
         $app = Plack::Middleware::Static->wrap($app,
                     path         => sub {
-                                          my $p = Thruk::Context::translate_request_path($_, $class->config);
+                                          my $p = Thruk::Context::translate_request_path($_, config());
                                           return unless $p =~ m%^/thruk/plugins/%mx;
                                           return unless $p =~ /\.(css|png|js|gif|jpg|ico|html|wav|mp3|ogg|ttf|svg|woff|woff2|eot|map)$/mx;
                                           $_ =~ s%^/thruk/plugins/([^/]+)/%$1/root/%mx;
@@ -105,7 +102,7 @@ sub startup {
         );
         $app = Plack::Middleware::Static->wrap($app,
                     path         => sub {
-                                          my $p = Thruk::Context::translate_request_path($_, $class->config);
+                                          my $p = Thruk::Context::translate_request_path($_, config());
                                           return if $p =~ m%^/thruk/cgi\-bin/proxy\.cgi%mx;
                                           $p =~ /\.(css|png|js|gif|jpg|ico|html|wav|mp3|ogg|ttf|svg|woff|woff2|eot|map)$/mx;
                                         },
@@ -130,20 +127,16 @@ sub _build_app {
 
     $self->{'errors'} = [];
 
-    my $config = Thruk->config;
-    $self->{'config'} = $config;
-    Thruk::Utils::Log::reset_logging();
-
     for my $key (@Thruk::Action::AddDefaults::stash_config_keys) {
-        confess("$key not defined in config,\n".Dumper($config)) unless defined $config->{$key};
+        confess("$key not defined in config,\n".Dumper(Thruk->config)) unless defined Thruk->config->{$key};
     }
 
-    _init_cache($self->{'config'});
+    _init_cache();
 
     ###################################################
     # load and parse cgi.cfg into $c->config
-    unless(Thruk::Config::read_cgi_cfg($self, $self->{'config'})) {
-        die("\n\n*****\nfailed to load cgi config: ".($self->{'config'}->{'cgi.cfg'} // 'none')."\n*****\n\n");
+    unless(Thruk::Config::read_cgi_cfg($self, Thruk->config)) {
+        die("\n\n*****\nfailed to load cgi config: ".(Thruk->config->{'cgi.cfg'} // 'none')."\n*****\n\n");
     }
     $self->_add_additional_roles();
     #&timing_breakpoint('startup() cgi.cfg parsed');
@@ -215,7 +208,7 @@ sub _build_app {
     # load routes dynamically from plugins
     our $routes_already_loaded;
     $routes_already_loaded = {} unless defined $routes_already_loaded;
-    for my $plugin_dir (glob($config->{'plugin_path'}.'/plugins-enabled/*/lib/Thruk/Controller/*.pm')) {
+    for my $plugin_dir (glob(Thruk->config->{'plugin_path'}.'/plugins-enabled/*/lib/Thruk/Controller/*.pm')) {
         my $route_file = $plugin_dir;
         $route_file =~ s|/lib/Thruk/Controller/.*\.pm$|/routes|gmx;
         if(-f $route_file) {
@@ -259,8 +252,8 @@ sub _build_app {
 
     ###################################################
     my $c = Thruk::Context->new($self, {'PATH_INFO' => '/dummy-internal'.__FILE__.':'.__LINE__});
-    Thruk::Utils::LMD::check_initial_start($c, $config, 1);
-    $self->cluster->register($c) if $config->{'cluster_enabled'};
+    Thruk::Utils::LMD::check_initial_start($c, Thruk->config, 1);
+    $self->cluster->register($c) if Thruk->config->{'cluster_enabled'};
 
     binmode(STDOUT, ":encoding(UTF-8)");
     binmode(STDERR, ":encoding(UTF-8)");
@@ -294,7 +287,7 @@ sub _dispatcher {
     my $url = $c->req->url;
     $c->stats->profile(begin => "_dispatcher: ".$url);
     $c->stats->profile(comment => sprintf('time: %s - host: %s - pid: %s - req: %s', (scalar localtime), $c->config->{'hostname'}, $$, $Thruk::COUNT));
-    $c->cluster->refresh() if $config->{'cluster_enabled'};
+    $c->cluster->refresh() if $c->config->{'cluster_enabled'};
 
     if(Thruk->verbose) {
         _debug(sprintf("_dispatcher: %s\n", $url));
@@ -438,22 +431,6 @@ sub find_route_match {
 
 ###################################################
 
-=head2 config
-
-    make config accessible via Thruk->config
-
-=cut
-sub config {
-    my($self, $no_recurse) = @_;
-    return($config) if $config;
-    return if $no_recurse;
-    require Thruk::Config;
-    $config = Thruk::Config::set_config_env();
-    return($config);
-}
-
-###################################################
-
 =head2 cluster
 
     make cluster accessible via Thruk->cluster
@@ -478,7 +455,7 @@ return metrics object
 sub metrics {
     return($_[0]->{'_metrics'}) if $_[0]->{'_metrics'};
     require Thruk::Metrics;
-    $_[0]->{'_metrics'} = Thruk::Metrics->new(file => $_[0]->{'config'}->{'var_path'}.'/thruk.stats');
+    $_[0]->{'_metrics'} = Thruk::Metrics->new(file => $_[0]->config->{'var_path'}.'/thruk.stats');
     return($_[0]->{'_metrics'});
 }
 
@@ -498,67 +475,11 @@ sub obj_db_model {
 }
 
 ###################################################
-
-=head2 verbose
-
-    make verbose accessible via Thruk->verbose
-
-=cut
-sub verbose {
-    return($ENV{'THRUK_VERBOSE'} // 0);
-}
-
-###################################################
-
-=head2 debug
-
-    make debug accessible via Thruk->debug
-
-=cut
-sub debug {
-    return(Thruk->verbose > 1);
-}
-
-###################################################
-
-=head2 trace
-
-    make trace accessible via Thruk->trace
-
-=cut
-sub trace {
-    return(Thruk->verbose >= 4);
-}
-
-###################################################
-
-=head2 quiet
-
-    make quiet accessible via Thruk->quiet
-
-=cut
-sub quiet {
-    return($ENV{'THRUK_QUIET'} // 0);
-}
-
-###################################################
-
-=head2 mode
-
-    make THRUK_MODE accessible via Thruk->mode
-
-=cut
-sub mode {
-    return($ENV{'THRUK_MODE'} // "CLI");
-}
-
-###################################################
 # init cache
 sub _init_cache {
-    my($config) = @_;
     load Thruk::Utils::Cache, qw/cache/;
-    Thruk::Utils::IO::mkdir($config->{'tmp_path'});
-    return Thruk::Utils::Cache->cache($config->{'tmp_path'}.'/thruk.cache');
+    Thruk::Utils::IO::mkdir(Thruk->config->{'tmp_path'});
+    return Thruk::Utils::Cache->cache(Thruk->config->{'tmp_path'}.'/thruk.cache');
 }
 
 ###################################################
@@ -619,9 +540,9 @@ sub _check_exit_reason {
 my $pidfile;
 sub _setup_pidfile {
     my($self) = @_;
-    $pidfile  = $self->config->{'tmp_path'}.'/thruk.pid';
+    $pidfile  = Thruk->config->{'tmp_path'}.'/thruk.pid';
     if(Thruk->mode eq 'FASTCGI') {
-        -s $pidfile || unlink($self->config->{'tmp_path'}.'/thruk.cache');
+        -s $pidfile || unlink(Thruk->config->{'tmp_path'}.'/thruk.cache');
         open(my $fh, '>>', $pidfile) || warn("cannot write $pidfile: $!");
         print $fh $$."\n";
         Thruk::Utils::IO::close($fh, $pidfile);
@@ -734,10 +655,11 @@ sub _clean_exit {
 =cut
 sub set_timezone {
     my($self, $timezone) = @_;
-    $self->config->{'_server_timezone'} = $self->_detect_timezone() unless $self->config->{'_server_timezone'};
+    my $config = Thruk->config;
+    $config->{'_server_timezone'} = $self->_detect_timezone() unless $config->{'_server_timezone'};
 
     if(!defined $timezone) {
-        $timezone = $self->config->{'server_timezone'} || $self->config->{'use_timezone'} || $self->config->{'_server_timezone'};
+        $timezone = $config->{'server_timezone'} || $config->{'use_timezone'} || $config->{'_server_timezone'};
     }
 
     ## no critic
@@ -753,9 +675,11 @@ sub set_timezone {
 sub _setup_cluster {
     my($self) = @_;
     chomp(my $hostname = Thruk::Utils::IO::cmd("hostname"));
-    $self->config->{'hostname'} = $hostname unless $self->config->{'hostname'};
-    $Thruk::HOSTNAME            = $self->config->{'hostname'};
-    $Thruk::NODE_ID_HUMAN       = $self->config->{'hostname'}."-".$self->{'config'}->{'home'}."-".abs_path($ENV{'THRUK_CONFIG'} || '.');
+    my $config = Thruk->config;
+    require Thruk::Utils::Crypt;
+    $config->{'hostname'} = $hostname unless $config->{'hostname'};
+    $Thruk::HOSTNAME            = $config->{'hostname'};
+    $Thruk::NODE_ID_HUMAN       = $config->{'hostname'}."-".$config->{'home'}."-".abs_path($ENV{'THRUK_CONFIG'} || '.');
     $Thruk::NODE_ID             = Thruk::Utils::Crypt::hexdigest($Thruk::NODE_ID_HUMAN);
     return;
 }
@@ -764,7 +688,8 @@ sub _setup_cluster {
 # set installed server side includes
 sub _set_ssi {
     my($self) = @_;
-    my $ssi_dir = $self->config->{'ssi_path'};
+    my $config  = Thruk->config;
+    my $ssi_dir = $config->{'ssi_path'};
     my (%ssi, $dh);
     if(-e $ssi_dir) {
         opendir( $dh, $ssi_dir) or die "can't opendir '$ssi_dir': $!";
@@ -775,8 +700,8 @@ sub _set_ssi {
         }
         closedir $dh;
     }
-    $self->config->{'ssi_includes'} = \%ssi;
-    $self->config->{'ssi_path'}     = $ssi_dir;
+    $config->{'ssi_includes'} = \%ssi;
+    $config->{'ssi_path'}     = $ssi_dir;
     return;
 }
 
@@ -1093,7 +1018,8 @@ sub _load_plugin_class {
 sub _add_additional_roles {
     my($self) = @_;
     my $roles = $Thruk::Authentication::User::possible_roles;
-    for my $role (sort keys %{$self->config}) {
+    my $config = Thruk->config;
+    for my $role (sort keys %{$config}) {
         next unless $role =~ m/authorized_(contactgroup_|)for_/mx;
         $role =~ s/authorized_contactgroup_for_/authorized_for_/mx;
         push @{$roles}, $role;
@@ -1117,7 +1043,7 @@ stop all thruk pids except ourselves
 =cut
 sub stop_all {
     my($self) = @_;
-    $pidfile  = $self->config->{'tmp_path'}.'/thruk.pid';
+    $pidfile  = Thruk->config->{'tmp_path'}.'/thruk.pid';
     if(-f $pidfile) {
         my @pids = read_file($pidfile);
         for my $pid (@pids) {

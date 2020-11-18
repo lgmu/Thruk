@@ -9,9 +9,9 @@ use Data::Dumper qw/Dumper/;
 use POSIX ();
 use Storable ();
 use Class::Inspector ();
+
+use Thruk::Base ();
 use Thruk::Utils::Log qw/:all/;
-use Thruk::Utils::Filter ();
-use Thruk::Utils::Broadcast ();
 use Thruk::Utils::IO ();
 
 =head1 NAME
@@ -32,10 +32,11 @@ Generic Access to Thruks Config
 
 our $VERSION = '2.38';
 
+our $config;
 my $project_root = home() or confess('could not determine project_root: '.Dumper(\%INC));
 my $branch       = '2';
 my $gitbranch    = get_git_name($project_root);
-my $filebranch  = $branch || 1;
+my $filebranch   = $branch || 1;
 if($branch) {
     $branch = $branch.'~'.$gitbranch if $gitbranch ne '';
 } else {
@@ -292,58 +293,13 @@ my $base_defaults = {
     ],
 };
 
-# settings used for the template toolkit renderer
-my $view_tt_settings = {
-    'TEMPLATE_EXTENSION'                    => '.tt',
-    'ENCODING'                              => 'utf-8',
-    'INCLUDE_PATH'                          => $project_root.'/templates', # will be overwritten during render
-    'RECURSION'                             => 1,
-    'PRE_CHOMP'                             => 0,
-    'POST_CHOMP'                            => 0,
-    'TRIM'                                  => 0,
-    'COMPILE_EXT'                           => '.ttc',
-    'STAT_TTL'                              => 604800, # templates do not change in production
-    'STRICT'                                => 0,
-    'EVAL_PERL'                             => 1,
-    'FILTERS'                               => {
-                'duration'                      => \&Thruk::Utils::Filter::duration,
-                'nl2br'                         => \&Thruk::Utils::Filter::nl2br,
-                'strip_command_args'            => \&Thruk::Utils::Filter::strip_command_args,
-                'escape_html'                   => \&Thruk::Utils::Filter::escape_html,
-                'lc'                            => \&Thruk::Utils::Filter::lc,
-    },
-    'PRE_DEFINE'                            => {
-                # subs from Thruk::Utils::Filter will be added automatically
-                'dump'                          => \&Thruk::Utils::Filter::debug,
-                'get_broadcasts'                => \&Thruk::Utils::Broadcast::get_broadcasts,
-                'command_disabled'              => \&Thruk::Utils::command_disabled,
-                'proxifiy_url'                  => \&Thruk::Utils::proxifiy_url,
-                'get_remote_thruk_url'          => \&Thruk::Utils::get_remote_thruk_url,
-                'basename'                      => \&Thruk::Utils::basename,
-                'debug_details'                 =>   get_debug_details(),
-                'format_date'                   => \&Thruk::Utils::format_date,
-                'format_cronentry'              => \&Thruk::Utils::format_cronentry,
-                'format_number'                 => \&Thruk::Utils::format_number,
-                'set_favicon_counter'           => \&Thruk::Utils::Status::set_favicon_counter,
-                'get_pnp_url'                   => \&Thruk::Utils::get_pnp_url,
-                'get_graph_url'                 => \&Thruk::Utils::get_graph_url,
-                'get_action_url'                => \&Thruk::Utils::get_action_url,
-                'reduce_number'                 => \&Thruk::Utils::reduce_number,
-                'get_custom_vars'               => \&Thruk::Utils::get_custom_vars,
-    },
-};
-
-# export filter functions
-for my $s (@{Class::Inspector->functions('Thruk::Utils::Filter')}) {
-    $view_tt_settings->{'PRE_DEFINE'}->{$s} = \&{'Thruk::Utils::Filter::'.$s};
-}
-
 # set TT strict mode only for authors
 $base_defaults->{'thruk_author'} = 0;
 $base_defaults->{'demo_mode'}   = (-f $project_root."/.demo_mode" || $ENV{'THRUK_DEMO_MODE'}) ? 1 : 0;
 if(-f $project_root."/.author" || $ENV{'THRUK_AUTHOR'}) {
     $base_defaults->{'thruk_author'} = 1;
 }
+$config = set_config_env();
 
 ######################################
 
@@ -362,7 +318,7 @@ sub get_default_stash {
         'inject_stats'              => 1,
         'user_profiling'            => 0,
         'real_page'                 => '',
-        'make_test_mode'            => Thruk->mode eq 'TEST' ? 1 : 0,
+        'make_test_mode'            => Thruk::Base->mode eq 'TEST' ? 1 : 0,
         'version'                   => $VERSION,
         'branch'                    => $branch,
         'filebranch'                => $filebranch,
@@ -435,32 +391,32 @@ sub set_config_env {
     my @files = @_;
 
     my $configs = _load_config_files(\@files);
-    my $config  = Storable::dclone($base_defaults);
+    my $conf    = Storable::dclone($base_defaults);
 
     ###################################################
     # merge files into defaults, use backends from base config unless specified in local configs
     my $base_backends;
     for my $cfg (@{$configs}) {
         my $file = $cfg->[0];
-        merge_sub_config($config, $cfg->[1]);
+        merge_sub_config($conf, $cfg->[1]);
         if($file =~ m/\Qthruk.conf\E$/mx) {
-            $base_backends = delete $config->{'Thruk::Backend'};
-            $config->{'Thruk::Backend'} = {};
+            $base_backends = delete $conf->{'Thruk::Backend'};
+            $conf->{'Thruk::Backend'} = {};
         }
     }
-    $config->{'Thruk::Backend'} = $base_backends unless($config->{'Thruk::Backend'} && scalar keys %{$config->{'Thruk::Backend'}} > 0);
+    $conf->{'Thruk::Backend'} = $base_backends unless($conf->{'Thruk::Backend'} && scalar keys %{$conf->{'Thruk::Backend'}} > 0);
 
     ## no critic
-    if($config->{'thruk_verbose'}) {
-        if(!$ENV{'THRUK_VERBOSE'} || $ENV{'THRUK_VERBOSE'} < $config->{'thruk_verbose'}) {
-            $ENV{'THRUK_VERBOSE'} = $config->{'thruk_verbose'};
+    if($conf->{'thruk_verbose'}) {
+        if(!$ENV{'THRUK_VERBOSE'} || $ENV{'THRUK_VERBOSE'} < $conf->{'thruk_verbose'}) {
+            $ENV{'THRUK_VERBOSE'} = $conf->{'thruk_verbose'};
         }
     }
     ## use critic
 
-    $config = set_default_config($config);
-    $Thruk::config = $config;
-    return($config);
+    $conf = set_default_config($conf);
+    $config = $conf;
+    return($conf);
 }
 
 ######################################
@@ -529,11 +485,10 @@ sub set_default_config {
     $ENV{'THRUK_GROUPS'}   = join(';', @{$groups});
     ## use critic
 
-    if(Thruk->mode eq 'CLI') {
+    if(Thruk::Base->mode eq 'CLI') {
         if(defined $uid and $> == 0) {
             switch_user($uid, $groups);
-            _error("ERROR: re-exec with uid $uid did not work");
-            exit(3);
+            _fatal("re-exec with uid $uid did not work");
         }
     }
 
@@ -579,7 +534,7 @@ sub set_default_config {
 
     # external jobs can be disabled by env
     # don't disable for CLI, breaks config reload over http somehow
-    if(defined $ENV{'NO_EXTERNAL_JOBS'} || Thruk->mode eq 'SCRIPTS') {
+    if(defined $ENV{'NO_EXTERNAL_JOBS'} || Thruk::Base->mode eq 'SCRIPTS') {
         $config->{'no_external_job_forks'} = 1;
     }
 
@@ -638,7 +593,6 @@ sub set_default_config {
     # use uid to make tmp dir more uniq
     $config->{'tmp_path'} = '/tmp/thruk_'.$> unless defined $config->{'tmp_path'};
     $config->{'tmp_path'} =~ s|/$||mx;
-    $view_tt_settings->{'COMPILE_DIR'} = $config->{'tmp_path'}.'/ttc_'.$>;
 
     $config->{'ssi_path'} = $config->{'ssi_path'} || $config->{etc_path}.'/ssi';
 
@@ -690,7 +644,7 @@ sub set_default_config {
 
     # expand action_menu_items_folder
     my $action_menu_items_folder = $config->{'action_menu_items_folder'} || $config->{etc_path}."/action_menus";
-    for my $folder (@{Thruk::Config::list($action_menu_items_folder)}) {
+    for my $folder (@{list($action_menu_items_folder)}) {
         next unless -d $folder.'/.';
         my @files = glob($folder.'/*');
         for my $file (@files) {
@@ -804,6 +758,55 @@ return template toolkit config
 
 =cut
 sub get_toolkit_config {
+    require Thruk::Utils::Filter;
+    require Thruk::Utils::Broadcast;
+
+    my $view_tt_settings = {
+        'TEMPLATE_EXTENSION'                    => '.tt',
+        'ENCODING'                              => 'utf-8',
+        'INCLUDE_PATH'                          => $project_root.'/templates', # will be overwritten during render
+        'COMPILE_DIR'                           => $config->{'tmp_path'}.'/ttc_'.$>,
+        'RECURSION'                             => 1,
+        'PRE_CHOMP'                             => 0,
+        'POST_CHOMP'                            => 0,
+        'TRIM'                                  => 0,
+        'COMPILE_EXT'                           => '.ttc',
+        'STAT_TTL'                              => 604800, # templates do not change in production
+        'STRICT'                                => 0,
+        'EVAL_PERL'                             => 1,
+        'FILTERS'                               => {
+                    'duration'                      => \&Thruk::Utils::Filter::duration,
+                    'nl2br'                         => \&Thruk::Utils::Filter::nl2br,
+                    'strip_command_args'            => \&Thruk::Utils::Filter::strip_command_args,
+                    'escape_html'                   => \&Thruk::Utils::Filter::escape_html,
+                    'lc'                            => \&Thruk::Utils::Filter::lc,
+        },
+        'PRE_DEFINE'                            => {
+                    # subs from Thruk::Utils::Filter will be added automatically
+                    'dump'                          => \&Thruk::Utils::Filter::debug,
+                    'get_broadcasts'                => \&Thruk::Utils::Broadcast::get_broadcasts,
+                    'command_disabled'              => \&Thruk::Utils::command_disabled,
+                    'proxifiy_url'                  => \&Thruk::Utils::proxifiy_url,
+                    'get_remote_thruk_url'          => \&Thruk::Utils::get_remote_thruk_url,
+                    'basename'                      => \&Thruk::Utils::basename,
+                    'debug_details'                 =>   get_debug_details(),
+                    'format_date'                   => \&Thruk::Utils::format_date,
+                    'format_cronentry'              => \&Thruk::Utils::format_cronentry,
+                    'format_number'                 => \&Thruk::Utils::format_number,
+                    'set_favicon_counter'           => \&Thruk::Utils::Status::set_favicon_counter,
+                    'get_pnp_url'                   => \&Thruk::Utils::get_pnp_url,
+                    'get_graph_url'                 => \&Thruk::Utils::get_graph_url,
+                    'get_action_url'                => \&Thruk::Utils::get_action_url,
+                    'reduce_number'                 => \&Thruk::Utils::reduce_number,
+                    'get_custom_vars'               => \&Thruk::Utils::get_custom_vars,
+        },
+    };
+
+    # export filter functions
+    for my $s (@{Class::Inspector->functions('Thruk::Utils::Filter')}) {
+        $view_tt_settings->{'PRE_DEFINE'}->{$s} = \&{'Thruk::Utils::Filter::'.$s};
+    }
+
     return($view_tt_settings);
 }
 
@@ -998,7 +1001,7 @@ sub finalize {
     Thruk::Action::AddDefaults::restore_user_backends($c);
 
     if($Thruk::deprecations_log) {
-        if(Thruk->mode ne 'TEST' && Thruk->mode ne 'CLI') {
+        if(Thruk::Base->mode ne 'TEST' && Thruk::Base->mode ne 'CLI') {
             for my $warning (@{$Thruk::deprecations_log}) {
                 _info($warning);
             }

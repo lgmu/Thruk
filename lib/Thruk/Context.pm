@@ -47,6 +47,7 @@ sub new {
     my($class, $app, $env) = @_;
 
     my $time_begin  = [gettimeofday()];
+    my $config = $app->config || confess("uninitialized, no app config");
     my $memory_begin;
     if($ENV{'THRUK_PERFORMANCE_DEBUG'}) {
         $memory_begin = Thruk::Backend::Pool::get_memory_usage();
@@ -54,7 +55,7 @@ sub new {
 
     # translate paths, translate ex.: /naemon/cgi-bin to /thruk/cgi-bin/
     $env->{'REQUEST_URI_ORIG'} = $env->{'REQUEST_URI'} || $env->{'PATH_INFO'};
-    my $path_info         = translate_request_path($env->{'REQUEST_URI'} || $env->{'PATH_INFO'}, $app->config, $env);
+    my $path_info         = translate_request_path($env->{'REQUEST_URI'} || $env->{'PATH_INFO'}, $config, $env);
     $env->{'PATH_INFO'}   = $path_info;
     $env->{'REQUEST_URI'} = $path_info;
 
@@ -69,7 +70,7 @@ sub new {
     my $self = {
         app    => $app,
         env    => $env,
-        config => $app->{'config'},
+        config => $config,
         req    => $req,
         res    => $req->new_response(200),
         stats  => $Thruk::Request::c ? $Thruk::Request::c->stats : Thruk::Stats->new(),

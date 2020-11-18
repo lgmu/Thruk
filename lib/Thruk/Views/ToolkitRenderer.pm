@@ -60,7 +60,7 @@ sub register {
     push @{$settings->{'LOAD_TEMPLATES'}}, Template::Provider->new(\%base_settings);
 
     $app->{'tt'} = Template->new($settings);
-    $app->{'config'}->{'strict_tt'} = $settings->{'STRICT'};
+    $app->config->{'strict_tt'} = $settings->{'STRICT'};
     return;
 }
 

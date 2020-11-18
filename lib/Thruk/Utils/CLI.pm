@@ -15,16 +15,19 @@ use warnings;
 use strict;
 use Carp;
 use Data::Dumper qw/Dumper/;
-use Thruk::UserAgent ();
 use Cpanel::JSON::XS qw/encode_json decode_json/;
 use File::Slurp qw/read_file/;
 use Encode qw(encode_utf8);
 use Time::HiRes qw/gettimeofday tv_interval/;
 use HTTP::Request 6.12 ();
 use Module::Load qw/load/;
+
+use Thruk ();
+use Thruk::Config ();
 use Thruk::Utils ();
-use Thruk::Utils::IO ();
 use Thruk::Utils::Log qw/:all/;
+use Thruk::Utils::IO ();
+use Thruk::UserAgent ();
 
 ##############################################
 
@@ -35,7 +38,7 @@ use Thruk::Utils::Log qw/:all/;
     new([ $options ])
 
  $options = {
-    verbose => 0-3, # be more verbose
+    verbose => 0-4, # be more verbose
  }
 
 create CLI tool object
@@ -70,7 +73,12 @@ sub new {
     $ENV{'THRUK_BACKENDS'}   = join(';', @{$options->{'backends'}}) if(defined $options->{'backends'} and scalar @{$options->{'backends'}} > 0);
     $ENV{'THRUK_VERBOSE'}    = $ENV{'THRUK_VERBOSE'} // $options->{'verbose'} // 0;
     $ENV{'THRUK_QUIET'}      = 1 if $options->{'quiet'};
+    $ENV{'THRUK_VERBOSE'}    = 0 if$ENV{'THRUK_QUIET'};
     ## use critic
+
+    if($options->{'verbose'} && $options->{'quiet'}) {
+        _fatal("The quiet and verbose options are mutually exclusive. Choose one of them.");
+    }
 
     return $self;
 }
@@ -341,8 +349,7 @@ sub _run {
         $log_timestamps = 1;
     }
 
-    # skip cluster if --local is given on command line
-    local $ENV{'THRUK_SKIP_CLUSTER'} = 1 if($self->{'opt'}->{'local'} && !$ENV{'THRUK_CRON'});
+    local $ENV{'THRUK_SKIP_CLUSTER'} = 1 if !$ENV{'THRUK_CRON'};
 
     my $c = $self->get_c();
     if(!defined $c) {
@@ -350,16 +357,7 @@ sub _run {
         return 1;
     }
 
-    # initialize backend pool here to safe some memory
-    require Thruk::Backend::Pool;
-    if($action and $action =~ m/livecache/mx) {
-        local $ENV{'THRUK_NO_CONNECTION_POOL'} = 1;
-        Thruk::Backend::Pool::init_backend_thread_pool();
-    } else {
-        Thruk::Backend::Pool::init_backend_thread_pool();
-    }
-
-    _debug2("_run(): building local response");
+    _debug2("_run(): building response");
 
     # catch prints when not attached to a terminal and redirect them to our logger
     local $| = 1;
@@ -372,6 +370,8 @@ sub _run {
 
     _debug("_run(): building local response done, exit code ".$result->{'rc'});
     my $response = $c->res;
+
+    _debug("".$c->stats->report) if Thruk->verbose >= 3;
 
     # no output?
     if(!defined $result->{'output'}) {
@@ -391,7 +391,6 @@ sub _run {
         binmode STDERR;
         print STDERR $result->{'output'};
     }
-    _trace("".$c->stats->report) if Thruk->verbose >= 3;
     return $result->{'rc'};
 }
 

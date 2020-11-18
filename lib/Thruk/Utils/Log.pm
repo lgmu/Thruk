@@ -18,11 +18,12 @@ use Time::HiRes ();
 use POSIX ();
 use File::Slurp qw(read_file);
 
-use Thruk;
-use Thruk::Utils::IO;
+use Thruk::Base ();
 
 use Exporter 'import';
-our @EXPORT_OK = qw(_fatal _error _warn _info _infos _infoc _debug _debug2 _debugs _debugc _trace _audit_log);
+our @EXPORT_OK = qw(_fatal _error _warn _info _infos _infoc
+                    _debug _debug2 _debugs _debugc _trace _audit_log
+                    );
 our %EXPORT_TAGS = ( all => \@EXPORT_OK );
 
 ##############################################
@@ -41,7 +42,7 @@ our $cwd = Cwd::getcwd;
 
 =cut
 sub log {
-    init_logging() unless $logger;
+    _init_logging() unless $logger;
     return($logger);
 }
 
@@ -111,15 +112,18 @@ sub _log {
     my $line = shift @{$data};
     return unless defined $line;
     $lvl = 'DEBUG' unless defined $lvl;
-    return if($lvl eq 'TRACE'  && !Thruk->trace);
-    return if($lvl eq 'DEBUG'  && !Thruk->verbose);
-    return if($lvl eq 'DEBUG2' && !Thruk->debug);
-    return if($lvl eq 'INFO'   &&  Thruk->quiet);
+    if(Thruk::Base::quiet()) {
+        return if($lvl ne 'WARN' && $lvl ne 'ERROR');
+    } else {
+        return if($lvl eq 'TRACE'  && !Thruk::Base::trace());
+        return if($lvl eq 'DEBUG'  && !Thruk::Base::verbose());
+        return if($lvl eq 'DEBUG2' && !Thruk::Base::debug());
+    }
     if(defined $ENV{'THRUK_TEST_NO_LOG'}) {
         $ENV{'THRUK_TEST_NO_LOG'} .= $line."\n";
         return;
     }
-    init_logging() unless $logger;
+    _init_logging() unless $logger;
     if(ref $line) {
         return _log($lvl, Dumper([$line, @{$data}]), $options);
     } elsif(scalar @{$data} > 0) {
@@ -171,6 +175,8 @@ sub _log {
             $appender->layout($layouts->{'original'});
         }
     }
+    my $config = _config();
+    &reset_logging unless $config; # do not store logger if we are not fully initialized yet
     return;
 }
 
@@ -184,7 +190,7 @@ sub _log {
 =cut
 sub _audit_log {
     my($category, $msg, $user, $sessionid, $print) = @_;
-    my $config = Thruk->config(1);
+    my $config = _config();
     $print = $print // 1;
 
     if(!$user) {
@@ -204,7 +210,7 @@ sub _audit_log {
         }
     }
     if(!$sessionid) {
-        if(Thruk->mode eq 'CLI') {
+        if(Thruk::Base::mode() eq 'CLI') {
             $sessionid = 'command line';
         }
     }
@@ -225,7 +231,7 @@ sub _audit_log {
     }
 
     # log to thruk.log and print to screen
-    init_logging() unless $logger;
+    _init_logging() unless $logger;
     $filelogger->info($msg) if $filelogger;
     _info($msg) if($print || !$filelogger);
 
@@ -242,6 +248,7 @@ sub _audit_log {
         );
         $log =~ s/\n*$//gmx;
         $file = POSIX::strftime($file, @localtime) if $file =~ m/%/gmx;
+        require Thruk::Utils::IO;
         Thruk::Utils::IO::write($file, $log."\n", undef, 1);
     }
 
@@ -324,22 +331,14 @@ sub PRINT {
 }
 
 ###################################################
-
-=head2 init_logging
-
-    initialize logging
-
-returns nothing
-
-=cut
-sub init_logging {
+sub _init_logging {
     require Log::Log4perl;
 
-    my $config = Thruk->config(1);
+    my $config = _config();
     delete $config->{'log4perl_logfile_in_use'};
 
     my($log4perl_conf);
-    if(Thruk->mode eq 'FASTCGI' || $ENV{'THRUK_JOB_DIR'} || $ENV{'THRUK_CRON'}) {
+    if(Thruk::Base::mode() eq 'FASTCGI' || $ENV{'THRUK_JOB_DIR'} || $ENV{'THRUK_CRON'}) {
         if(defined $config->{'log4perl_conf'} && ! -s $config->{'log4perl_conf'} ) {
             die("\n\n*****\nfailed to load log4perl config: ".$config->{'log4perl_conf'}.": ".$!."\n*****\n\n");
         }
@@ -352,14 +351,9 @@ sub init_logging {
         $logger = _get_screen_logger($config);
     }
 
-    if(Thruk->verbose) {
-        $logger->level('DEBUG');
-        _debug("logging initialized with loglevel ".Thruk->verbose);
+    if(Thruk::Base::verbose()) {
+        _debug("logging initialized with loglevel ".Thruk::Base::verbose());
     }
-    else {
-        $logger->level('INFO');
-    }
-    $logger->level('ERROR') if Thruk->quiet;
 
     return;
 }
@@ -373,7 +367,7 @@ sub _get_file_logger {
     if($log4perl_conf =~ m/log4perl\.appender\..*\.filename=(.*)\s*$/mx) {
         $config->{'log4perl_logfile_in_use'} = $1;
     }
-    $log4perl_conf =~ s/\.Threshold=INFO/.Threshold=DEBUG/gmx if Thruk->debug;
+    $log4perl_conf =~ s/\.Threshold=INFO/.Threshold=DEBUG/gmx if Thruk::Base::debug();
     Log::Log4perl::init(\$log4perl_conf);
     $filelogger = Log::Log4perl::get_logger("thruk.log");
     return($filelogger);
@@ -394,7 +388,7 @@ sub _get_screen_logger {
     }
 
     my $format = '[%d{ABSOLUTE}][%p] %m{chomp}';
-    if($ENV{'TEST_AUTHOR'} || $config->{'thruk_author'} || Thruk->debug) {
+    if($ENV{'TEST_AUTHOR'} || $config->{'thruk_author'} || Thruk::Base::debug()) {
         $format = '[%d{ABSOLUTE}]['.($use_color ? '%p{1}' : '%p').'][%-30Z] %m{chomp}';
         Log::Log4perl::Layout::PatternLayout::add_global_cspec('Z', \&_striped_caller_information);
     }
@@ -407,7 +401,7 @@ sub _get_screen_logger {
     }
 
     Log::Log4perl::Layout::PatternLayout::add_global_cspec('Q', \&_priority_error_warn_only);
-    if(!Thruk->verbose || Thruk->quiet) {
+    if(!Thruk::Base::verbose() || Thruk::Base::quiet()) {
         $format = '%Q%m{chomp}';
     }
 
@@ -423,7 +417,6 @@ sub _get_screen_logger {
     log4perl.appender.Screen.layout    = Log::Log4perl::Layout::PatternLayout
     log4perl.appender.Screen.layout.ConversionPattern = $format
     ";
-    $log_conf =~ s/Threshold\s*=\s*\w+$/Threshold = ERROR/gmx if Thruk->quiet;
     Log::Log4perl::init(\$log_conf);
     $screenlogger = Log::Log4perl->get_logger("thruk.screen");
     return($screenlogger);
@@ -448,7 +441,7 @@ sub reset_logging {
     $screenlogger = undef;
     $layouts      = {};
 
-    my $config = Thruk->config(1);
+    my $config = _config();
     delete $config->{'log4perl_logfile_in_use'} if $config;
     return;
 }
@@ -489,6 +482,11 @@ sub _priority_error_warn_only {
     if($priority eq 'ERROR') { return("[".$priority."] "); }
     if($priority eq 'WARN')  { return("[".$priority."] "); }
     return("");
+}
+
+##############################################
+sub _config {
+    return($Thruk::Config::config);
 }
 
 ##############################################
